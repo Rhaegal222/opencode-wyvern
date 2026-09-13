@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Syntax check
+        run: |
+          node --check bin/oc-setup.js
+          for f in src/*.js; do node --check "$f"; done
+
+      - name: Smoke (help)
+        run: node bin/oc-setup.js --help
+
+      - name: Wizard con input vuoto (fallback non-TTY)
+        run: echo "" | node bin/oc-setup.js
+
+      - name: Guardia anti-segreti
+        run: |
+          if grep -rinE 'wyrmrest|10\.0\.0\.1|rhaegal222' --include='*.js' --include='*.ps1' --include='*.sh' --include='*.md' bin src templates; then
+            echo 'DATI REALI/PRIVATI INCLUSI NEL PACCHETTO' >&2
+            exit 1
+          fi

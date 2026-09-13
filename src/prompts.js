@@ -22,21 +22,36 @@ function enableRaw() {
 }
 
 /**
- * Legge una riga da tastiera. `masked` oscura la digitazione (per segreti);
- * gestisce backspace e Ctrl+C.
+ * Fallback senza TTY: legge lo stdin a righe e le mette in coda, così
+ * più domande successive consumano le risposte in ordine (utile per
+ * piping/test e ambiente completamente non interattivo).
  */
+const fallbackQueue = []
+
+function readLineFallback(done) {
+  const next = () => {
+    if (fallbackQueue.length) {
+      const v = fallbackQueue.shift()
+      return done(v)
+    }
+    const onData = (chunk) => {
+      const text = chunk.toString()
+      const parts = text.split(/\r\n|\r|\n/)
+      fallbackQueue.push(...parts)
+      input.removeListener("data", onData)
+      next()
+    }
+    input.on("data", onData)
+    input.resume()
+  }
+  next()
+}
+
+/** Legge una riga da tastiera. `masked` oscura la digitazione (per segreti); */
+/** gestisce backspace e Ctrl+C. */
 export function readLine({ masked = false, allowEmpty = false } = {}, done) {
   if (!enableRaw()) {
-    // fallback: legge con lettura semplice dallo stdin
-    const chunks = []
-    input.on("data", function onData(chunk) {
-      const text = chunk.toString()
-      chunks.push(text)
-      if (/\r|\n/.test(text)) {
-        input.removeListener("data", onData)
-        done(chunks.join("").replace(/[\r\n]+$/, ""))
-      }
-    })
+    readLineFallback(done)
     return
   }
 

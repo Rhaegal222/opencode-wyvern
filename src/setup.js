@@ -10,106 +10,153 @@ import {
   applyLocalSection,
   applyRemoteSections,
 } from "./sections.js"
-import { ensureLocalKey, ensureSshConfigAlias, installKeyOnServer, verifyConnection } from "./server.js"
+import {
+  PROVIDER_META,
+  PROVIDER_ORDER,
+  defaultOmniRouteBase,
+  isPortValid,
+  ensureLocalKey,
+  ensureSshConfigAlias,
+  installKeyOnServer,
+  verifyConnection,
+} from "./server.js"
 import { installClient } from "./client.js"
 
 const SAMPLE_ENTRY = { server: "remote-server", host: "server.example.com", user: "you", dir: "~" }
+const REMOTE_SECTIONS = new Set(["server", "commands", "providers", "plugins", "claude-mem"])
 
-async function collectEntry(defaults = {}) {
-  const host = await ask("IP o hostname del server remoto", {
-    hint: "es. server.example.com o 192.0.2.1 (solo esempio)",
-    defaultValue: defaults.host || "",
-    validate: (v) => v.length > 0,
-  })
-  const user = await ask("Utente SSH sul server", {
-    hint: "es. root, ubuntu, deploy",
-    defaultValue: defaults.user || "",
-  })
-  const port = await ask("Porta SSH (invio = 22)", {
-    defaultValue: defaults.port || "",
-    validate: (v) => (v === "" ? true : /^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 65535),
-  })
-  const server = await ask("Alias SSH (usato dai comandi oc-*)", {
-    hint: "rigo Host in ~/.ssh/config",
-    defaultValue: defaults.server || "remote-server",
-    validate: (v) => /^[a-zA-Z0-9._-]+$/.test(v),
-  })
-  const dir = await ask("Cartella remota di default (dir sessione)", {
-    hint: "es. ~ o ~/projects",
-    defaultValue: defaults.dir || "~",
-  })
-  return { server, host, user, port, dir }
-}
-
-async function collectProviders() {
-  const sel = await checkbox("Quali provider abilitare sul server?", [
-    { label: "Google Gemini (@ai-sdk/google)", value: "gemini" },
-    { label: "OpenCode Zen (@openai/openai-provider)", value: "zen" },
-  ])
-  const providers = { gemini: false, zen: false }
-  sel.forEach((s) => (providers[s.value] = true))
-
-  const models = {}
-  if (providers.gemini) {
-    models.gemini = await ask("Modelli Gemini (virgola)", {
-      hint: "nome esatto",
-      defaultValue: "gemini-2.5-pro, gemini-2.5-flash",
+/** Coordina (dove, user, porta) e alias solo per le sezioni che le richiedono. */
+async function collectEntrySmart(prev, needs) {
+  const d = prev || {}
+  const out = {}
+  if (needs.host) {
+    out.host = await ask("IP o hostname del server remoto", {
+      hint: "es. server.example.com o 192.0.2.1 (solo esempio)",
+      defaultValue: d.host || "",
+      validate: (v) => v.length > 0,
+    })
+    out.user = await ask("Utente SSH sul server", {
+      hint: "es. root, ubuntu (invio = solo hostname)",
+      defaultValue: d.user || "",
+    })
+    out.port = await ask("Porta SSH (invio = 22)", {
+      defaultValue: d.port || "",
+      validate: (v) => isPortValid(v || ""),
     })
   }
-  if (providers.zen) {
-    models.zen = await ask("Modelli OpenCode Zen (virgola)", {
-      defaultValue: "opencode-zen-2.5-pro",
+  if (needs.alias) {
+    out.server = await ask("Alias SSH (usato dai comandi oc-*)", {
+      hint: "rigo Host in ~/.ssh/config",
+      defaultValue: d.server || "remote-server",
+      validate: (v) => /^[a-zA-Z0-9._-]+$/.test(v),
+    })
+  }
+  if (needs.dir) {
+    out.dir = await ask("Cartella remota di default (dir sessione)", {
+      hint: "es. ~ o ~/projects",
+      defaultValue: d.dir || "~",
+    })
+  }
+  return out
+}
+
+/** Raccoglie i provider attivi, gli endpoint e le chiavi (che restano solo sul server). */
+async function collectProvidersCfg(prev) {
+  const choices = PROVIDER_ORDER.map((id) => ({
+    label: PROVIDER_META[id].name + (PROVIDER_META[id].key ? " (key in .env)" : ""),
+    value: id,
+  }))
+  const sel = await checkbox("Quali provider abilitare sul server?", choices)
+  const providers = Object.fromEntries(PROVIDER_ORDER.map((id) => [id, false]))
+  sel.forEach((s) => (providers[s.value] = true))
+
+  let omnirouteUrl = (prev && prev.omnirouteUrl) || ""
+  if (providers.omniroute) {
+    omnirouteUrl = await ask("URL gateway OmniRoute (senza /v1)", {
+      hint: "es. http://127.0.0.1:20128",
+      defaultValue: omnirouteUrl || defaultOmniRouteBase(),
+      validate: (v) => /^https?:\/\/\S+$/.test(v),
     })
   }
 
   const envKeys = {}
-  if (providers.gemini) {
-    envKeys.GOOGLE_API_KEY = await secret("API key Google (GOOGLE_API_KEY) — resta sul server", { allowEmpty: true })
-  }
-  if (providers.zen) {
-    envKeys.ZEN_API_KEY = await secret("API key OpenCode Zen (ZEN_API_KEY) — resta sul server", { allowEmpty: true })
+  for (const id of PROVIDER_ORDER) {
+    const key = PROVIDER_META[id].key
+    if (providers[id] && key) {
+      envKeys[key] = await secret(`API key ${PROVIDER_META[id].name} (${key}) — resta sul server`, { allowEmpty: true })
+    }
   }
   if (Object.values(envKeys).some(Boolean)) {
     console.log(c.dim("  (le chiavi NON vengono salvate in locale; finiscono solo in ~/.config/opencode/.env sul server, chmod 600)"))
   }
-  return { providers, models, envKeys }
+
+  const models = Object.fromEntries(
+    PROVIDER_ORDER.filter((id) => providers[id]).map((id) => [id, (PROVIDER_META[id].defModels || []).join(", ")]),
+  )
+  return { providers, models, envKeys, omnirouteUrl }
 }
 
 export async function run(argv = []) {
   console.log(c.bold(c.cyan("oc-setup — OpenCode Wyvern "))
     + c.dim("(setup modulare: installi tutto, attivi quello che vuoi — nessun dato privato nel pacchetto)"))
-  section("Connessione")
+  section("Moduli")
 
   const cfg = loadConfig()
-  const entry = await collectEntry(cfg.entry || {})
-
-  section("Sezioni (moduli)")
-  console.log(c.dim("Installi tutto e attivi/disattivi i moduli quando vuoi (oc-setup activate/deactivate)."))
   const active = await checkbox("Quali sezioni vuoi attivare ora?", SECTIONS.map((s) => ({
     label: s.label,
     value: s.id,
   })), { defaultIndices: SECTIONS.map((_, i) => i) })
   const activeIds = new Set(active.map((s) => s.value))
 
-  let providers = {}, models = {}, envKeys = {}
-  if (activeIds.has("providers")) {
-    const pr = await collectProviders()
-    providers = pr.providers
-    models = pr.models
-    envKeys = pr.envKeys
+  if (!activeIds.size) {
+    console.log(c.yellow("  nessun modulo attivo: niente da installare. Esci e riavvia con \`oc-setup\` per sceglierne almeno uno."))
+    closePrompts()
+    return
   }
-  let plugins = []
-  if (activeIds.has("plugins") || activeIds.has("claude-mem")) {
+
+  const needs = {
+    host: activeIds.has("ssh") || [...REMOTE_SECTIONS].some((id) => activeIds.has(id)),
+    alias: activeIds.has("ssh") || activeIds.has("client-pwsh") || activeIds.has("client-bash"),
+    dir: activeIds.has("client-pwsh") || activeIds.has("client-bash"),
+  }
+
+  section("Connessione")
+  console.log(c.dim("  solo i dati necessari ai moduli che hai scelto."))
+  const entry = await collectEntrySmart(cfg.entry || {}, needs)
+
+  let providers = cfg.providers || Object.fromEntries(PROVIDER_ORDER.map((id) => [id, false]))
+  let models = cfg.models || {}
+  let envKeys = {}
+  let omnirouteUrl = cfg.omnirouteUrl || ""
+  if (activeIds.has("providers")) {
+    const p = await collectProvidersCfg(cfg)
+    providers = p.providers
+    models = p.models
+    omnirouteUrl = p.omnirouteUrl
+    envKeys = p.envKeys
+  }
+
+  let plugins = cfg.plugins || []
+  if (activeIds.has("plugins")) {
     const defaults = PLUGIN_CHOICES.map((_, i) => i)
     const sel = await checkbox("Plugin opencode da includere nel config server?", PLUGIN_CHOICES.map((p) => ({ label: p.label, value: p.value })), { defaultIndices: defaults })
     plugins = sel.map((s) => s.value)
   }
 
+  let tuning = cfg.tuning !== false
+  if (activeIds.has("providers") || activeIds.has("plugins") || activeIds.has("claude-mem") || activeIds.has("server")) {
+    tuning = await confirm("Aggiungo al config tool_output + compaction (default robusti)?", cfg.tuning !== false)
+  }
+
   const sections = Object.fromEntries(SECTIONS.map((s) => [s.id, activeIds.has(s.id)]))
-  saveConfig({ entry, sections, providers, models, plugins, configuredAt: new Date().toISOString() })
+  saveConfig({ entry, sections, providers, models, plugins, omnirouteUrl, tuning, configuredAt: new Date().toISOString() })
 
   section("Applicazione")
-  const localClientTargets = []
+  const anyClient = activeIds.has("client-pwsh") || activeIds.has("client-bash")
+  if (!activeIds.has("ssh") && anyClient && !entry.host) {
+    console.log(c.dim(`  client senza host: oc-* userà l'alias \`${entry.server}\`. Assicurati che ~/.ssh/config lo definisca.`))
+  }
+
   const { key } = ensureLocalKey()
   console.log(c.dim(`  chiave: ${key}`))
 
@@ -123,10 +170,11 @@ export async function run(argv = []) {
         console.log(c.yellow(`  attenzione: ${err.message}`))
       }
     }
-  } else if (activeIds.has("client-pwsh") || activeIds.has("client-bash") || activeIds.has("server") || activeIds.has("commands") || activeIds.has("providers") || activeIds.has("plugins") || activeIds.has("claude-mem")) {
+  } else if (entry.host && (activeIds.has("client-pwsh") || activeIds.has("client-bash") || [...REMOTE_SECTIONS].some((id) => activeIds.has(id)))) {
     ensureSshConfigAlias(entry)
   }
 
+  const localClientTargets = []
   for (const t of ["client-pwsh", "client-bash"]) {
     if (activeIds.has(t)) {
       await applyLocalSection(t, { entry })
@@ -134,11 +182,11 @@ export async function run(argv = []) {
     }
   }
 
-  const remoteIds = activeIds.has("server") || activeIds.has("commands") || activeIds.has("providers") || activeIds.has("plugins") || activeIds.has("claude-mem")
-  if (remoteIds) {
+  if ([...REMOTE_SECTIONS].some((id) => activeIds.has(id))) {
     const ok = verifyConnection(entry)
     if (!ok) console.log(c.yellow("  server non raggiungibile ora: script pronto, esegui `oc-setup generate` quando torna"))
-    applyRemoteSections({ ...cfg, entry, sections, providers, models, plugins, envKeys })
+    const saved = loadConfig()
+    applyRemoteSections(saved, { envKeys })
   }
 
   console.log(c.green("\nFatto."))
@@ -154,10 +202,12 @@ export async function run(argv = []) {
 export async function cmdStatus() {
   const cfg = loadConfig()
   const e = cfg.entry
+  const providers = cfg.providers && Object.entries(cfg.providers).filter(([, v]) => v).map(([k]) => k)
   console.log(c.bold(c.cyan("OpenCode Wyvern — stato")))
   console.log(`  config: ${configFilePath()}`)
   console.log(`  shell : PowerShell ${pwshProfilePath()} | bash ${bashRcPath()}`)
-  console.log(`  entry : ${e ? `${e.user ? e.user + "@" : ""}${e.host}${e.port && e.port !== "22" ? ":" + e.port : ""} (alias: ${e.server}, dir: ${e.dir || "~"})` : "non configurata (esegui oc-setup)"}`)
+  console.log(`  entry : ${e ? `${e.user ? e.user + "@" : ""}${e.host || e.server}${e.port && e.port !== "22" ? ":" + e.port : ""} (alias: ${e.server || "-"}, dir: ${e.dir || "~"})` : "non configurata (esegui oc-setup)"}`)
+  if (providers?.length) console.log(`  server: provider ${providers.join(", ")}${cfg.omnirouteUrl ? ` · omniroute ${cfg.omnirouteUrl}` : ""}${cfg.tuning ? " · tuning on" : ""}`)
   console.log("")
   console.log("  moduli:")
   for (const s of SECTIONS) {

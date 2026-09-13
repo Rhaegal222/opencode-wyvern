@@ -1,11 +1,12 @@
 import { c } from "./prompts.js"
 import { renderClient, installClient } from "./client.js"
-import { buildRemoteScript, runRemote, verifyConnection } from "./server.js"
+import { buildRemoteScript, runRemote, verifyConnection, chooseDefaultModels } from "./server.js"
 
 /**
  * Catalogo delle sezioni del setup. Ogni sezione è un modulo indipendente:
  * l'utente installa tutto (i dati vengono raccolti una volta) e attiva
  * solo le sezioni che vuole. Nessuna sezione contiene dati sensibili.
+ * host/utente/chiavi sono richiesti al setup, mai presenti qui.
  */
 export const SECTIONS = [
   {
@@ -47,15 +48,15 @@ export const SECTIONS = [
     id: "providers",
     kind: "remote",
     group: "server",
-    label: "Server — provider (Google Gemini, OpenCode Zen)",
+    label: "Server — provider (Copilot, Gemini, Zenith, Anthropic, OpenAI, OmniRoute)",
     desc: "SDK + blocco provider in opencode.json; API key in .env sul server (chmod 600).",
   },
   {
     id: "plugins",
     kind: "remote",
     group: "server",
-    label: "Server — plugin (claude-mem, copilot-auth, ...)",
-    desc: "Elenco plugin in opencode.json (copilot-auth, opencode-claude-auth, kimi-subscription, omniroute).",
+    label: "Server — plugin (copilot-auth, claude-auth, kimi, omniroute)",
+    desc: "Plugin npm installati in ~/.config/opencode e listati in opencode.json.",
   },
   {
     id: "claude-mem",
@@ -67,11 +68,10 @@ export const SECTIONS = [
 ]
 
 export const PLUGIN_CHOICES = [
-  { label: "claude-mem", value: "claude-mem" },
-  { label: "opencode-claude-auth", value: "opencode-claude-auth" },
-  { label: "kimi-subscription", value: "kimi-subscription" },
-  { label: "copilot-auth", value: "copilot-auth" },
-  { label: "omniroute", value: "omniroute" },
+  { label: "copilot-auth (auth GitHub Copilot)", value: "copilot-auth" },
+  { label: "claude-auth (auth Claude)", value: "claude-auth" },
+  { label: "kimi-subscription", value: "kimi" },
+  { label: "omniroute (gateway multi-modello)", value: "omniroute" },
 ]
 
 export function getSection(id) {
@@ -88,24 +88,31 @@ export function defaultSections() {
   return Object.fromEntries(SECTIONS.map((s) => [s.id, true]))
 }
 
-/** Stato server derivato dalla config (provider/plugin/claude-mem env). */
+/** Provider attivi da config (chiavi booleane dell'oggetto cfg.providers). */
+export function activeProviders(cfg) {
+  const p = cfg.providers || {}
+  return new Set(Object.entries(p).filter(([, v]) => v).map(([k]) => k))
+}
+
+/** Stato server derivato dalla config (provider/plugin/claude-mem/estensioni). */
 export function serverState(cfg) {
   const sections = activeSections(cfg)
-  const providers = new Set(["gemini", "zen"].filter((p) => cfg.providers?.[p]))
-  const plugins = (cfg.plugins || []).filter((p) => p !== "claude-mem")
-  const defaultModelId =
-    providers.has("gemini") ? `google/${(cfg.models?.gemini || "gemini-2.5-pro").split(",")[0].trim()}`
-    : providers.has("zen") ? `zen/${(cfg.models?.zen || "opencode-zen-2.5-pro").split(",")[0].trim()}`
-    : undefined
+  const providers = activeProviders(cfg)
+  const plugins = cfg.plugins || []
+  const models = cfg.models || {}
+  const omnirouteUrl = cfg.omnirouteUrl || ""
+  const { defaultModel, smallModel } = chooseDefaultModels(providers, models, omnirouteUrl)
   return {
     sections,
     providers,
     plugins,
     claudeMem: sections.has("claude-mem"),
-    geminiModels: cfg.models?.gemini,
-    zenModels: cfg.models?.zen,
+    models,
+    omnirouteUrl,
+    defaultModel,
+    smallModel,
+    tuning: cfg.tuning,
     envKeys: cfg.envKeys || {},
-    defaultModelId,
   }
 }
 
@@ -122,7 +129,7 @@ export function renderSection(id, cfg) {
   return null
 }
 
-/** Applica una sezione locale (ssa, client) alla macchina corrente. */
+/** Applica una sezione locale (ssh, client) alla macchina corrente. */
 export async function applyLocalSection(id, cfg) {
   if (id === "client-pwsh" || id === "client-bash") {
     await installClient(cfg.entry || cfg, { targets: [id] })
@@ -135,8 +142,8 @@ export async function applyLocalSection(id, cfg) {
 }
 
 /** Applica le sezioni remoto: compone lo script e lo esegue via SSH. */
-export function applyRemoteSections(cfg, { dryRun = false } = {}) {
-  const state = serverState(cfg)
+export function applyRemoteSections(cfg, { dryRun = false, envKeys } = {}) {
+  const state = { ...serverState(cfg), envKeys: envKeys || cfg.envKeys || {} }
   const script = buildRemoteScript(state)
   const remoteActive = [...state.sections].filter((id) => getSection(id)?.kind === "remote")
   if (!remoteActive.length) return { applied: false, script }

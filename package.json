@@ -9,7 +9,7 @@
     "url": "https://github.com/Rhaegal222"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20.12.0"
   },
   "bin": {
     "oc-setup": "bin/oc-setup.js"
@@ -37,5 +37,8 @@
   },
   "scripts": {
     "test": "node bin/oc-setup.js --help"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.8.0"
   }
 }

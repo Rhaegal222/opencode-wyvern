@@ -41,7 +41,7 @@ oc-sessions-today() {
     local list back
     list="$(oc-sessions-all)"
     [ -z "$list" ] && return 0
-    back="$(date -d "$(date +%F)" +%s)"
+    back=$(( $(date +%s) - 86400 ))
     printf '%s\n' "$list" | awk -F '\t' -v m="$back" '($1/1000)>=m{print $2"\t"$3"\t"$4}'
 }
 
@@ -119,10 +119,10 @@ oc-find() {
 oc-sessions() {
     local list; list="$(oc-sessions-today)"
     if [ -z "$list" ]; then
-        echo -e "${YELLOW}[WARN] Nessuna sessione di oggi (o SSH a chiave non configurato - esegui oc-connect).${NC}"
+        echo -e "${YELLOW}[WARN] Nessuna sessione nelle ultime 24 ore (o SSH a chiave non configurato - esegui oc-connect).${NC}"
         return 1
     fi
-    echo -e "${CYAN}Sessioni di oggi:${NC}"
+    echo -e "${CYAN}Sessioni nelle ultime 24 ore:${NC}"
     local i=0
     while IFS=$'\t' read -r id title dir; do
         i=$((i+1))
@@ -203,7 +203,7 @@ oc-recap() {
             echo -e "${YELLOW}      Errore: il server non risponde / raggiungibile.${NC}"
             echo -e "${DARKGRAY:-}      Riepilogo salvato localmente il $m: riprendi appena torna la connessione.${NC}"
             echo ""
-            back="$(date -d "$(date +%F)" +%s)"
+            back=$(( $(date +%s) - 86400 ))
             list="$(printf '%s\n' "$cached" | awk -F '\t' -v m="$back" '($1/1000)>=m{print $2"\t"$3"\t"$4"\t"$1}')"
         else
             echo -e "${RED}  [!] Connessione persa alle $err_time (SSH exit $last_exit).${NC}"
@@ -216,7 +216,7 @@ oc-recap() {
         list="$live"
     fi
     if [ -z "$list" ]; then
-        echo -e "${YELLOW}  Nessuna sessione di oggi nel riepilogo.${NC}"
+        echo -e "${YELLOW}  Nessuna sessione nelle ultime 24 ore nel riepilogo.${NC}"
         return 1
     fi
     i=0
@@ -298,7 +298,7 @@ list="$(oc-sessions-today)"
             oc-recap
             return 1
         fi
-        echo -e "${YELLOW}[WARN] Nessuna sessione di oggi (o SSH a chiave non configurato - esegui oc-connect).${NC}"
+        echo -e "${YELLOW}[WARN] Nessuna sessione nelle ultime 24 ore (o SSH a chiave non configurato - esegui oc-connect).${NC}"
         return 1
     fi
     term="$(oc-detect-terminal)"
@@ -405,7 +405,7 @@ oc-help() {
     printf '  %-24s %s\n' "oc-connect" "Setup SSH key + autorizzazione server"
     printf '  %-24s %s\n' "oc" "Nuova sessione opencode in $OC_DIR"
     printf '  %-24s %s\n' "oc-ssh" "Apri sessione SSH interattiva"
-    printf '  %-24s %s\n' "oc-sessions" "Lista sessioni opencode di oggi"
+    printf '  %-24s %s\n' "oc-sessions" "Lista sessioni opencode (ultime 24h)"
     printf '  %-24s %s\n' "oc-find [testo]" "Cerca sessioni globali per titolo e riapri"
     printf '  %-24s %s\n' "oc-delete [testo]" "Cerca ed elimina sessioni"
     printf '  %-24s %s\n' "oc-resume [--all-tabs]" "Riprende 1 sessione qui + 1 tab per le altre (o tutte in tab)"

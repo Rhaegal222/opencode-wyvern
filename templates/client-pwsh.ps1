@@ -142,25 +142,24 @@ function Get-OcCachedSessions {
     })
     $rows = @($rows | Where-Object { $_.Id } | Sort-Object Updated -Descending)
     if ($TodayOnly) {
-        $today = (Get-Date).Date
-        $rows = @($rows | Where-Object { [DateTimeOffset]::FromUnixTimeMilliseconds($_.Updated).LocalDateTime.Date -eq $today })
+        $cutoff = [DateTimeOffset]::UtcNow.AddHours(-24).ToUnixTimeMilliseconds()
+        $rows = @($rows | Where-Object { $_.Updated -ge $cutoff })
     }
     $rows
 }
 
-function Get-OcTodaySessions {
-    @(Get-OcAllSessions) | Where-Object {
-        [DateTimeOffset]::FromUnixTimeMilliseconds($_.Updated).LocalDateTime.Date -eq (Get-Date).Date
-    }
+function Get-OcRecentSessions {
+    $cutoff = [DateTimeOffset]::UtcNow.AddHours(-24).ToUnixTimeMilliseconds()
+    @(Get-OcAllSessions) | Where-Object { $_.Updated -ge $cutoff }
 }
 
 function oc-sessions {
-    $sessions = Get-OcTodaySessions
+    $sessions = Get-OcRecentSessions
     if (-not $sessions) {
-        Write-Host "Nessuna sessione di oggi (o SSH a chiave non configurato - esegui oc-connect)." -ForegroundColor Yellow
+        Write-Host "Nessuna sessione nelle ultime 24 ore (o SSH a chiave non configurato - esegui oc-connect)." -ForegroundColor Yellow
         return
     }
-    Write-Host "Sessioni di oggi:" -ForegroundColor Cyan
+    Write-Host "Sessioni nelle ultime 24 ore:" -ForegroundColor Cyan
     $i = 0
     foreach ($s in $sessions) {
         $i++
@@ -176,10 +175,10 @@ function oc-help {
     Write-Host ("  {0,-24} {1}" -f "oc-connect", "Setup SSH key + autorizzazione server")
     Write-Host ("  {0,-24} {1}" -f "oc", "Nuova sessione opencode in $env:OC_DIR")
     Write-Host ("  {0,-24} {1}" -f "oc-ssh", "Apri sessione SSH interattiva")
-    Write-Host ("  {0,-24} {1}" -f "oc-sessions", "Lista sessioni opencode di oggi")
+    Write-Host ("  {0,-24} {1}" -f "oc-sessions", "Lista sessioni opencode (ultime 24h)")
     Write-Host ("  {0,-24} {1}" -f "oc-find [testo]", "Cerca sessioni globali per titolo e riapri")
     Write-Host ("  {0,-24} {1}" -f "oc-delete [testo]", "Cerca ed elimina sessioni")
-    Write-Host ("  {0,-24} {1}" -f "oc-resume", "Apre 1 tab per ogni sessione di oggi")
+    Write-Host ("  {0,-24} {1}" -f "oc-resume", "Apre 1 tab per ogni sessione (ultime 24h)")
     Write-Host ("  {0,-24} {1}" -f "oc-go -Id <id> [-Dir <path>]", "Riprende una sessione specifica")
     Write-Host ("  {0,-24} {1}" -f "oc-recap", "Riepilogo sessioni (usa cache se il server è giù)")
     Write-Host ("  {0,-24} {1}" -f "oc-help", "Questo aiuto")
@@ -306,12 +305,12 @@ function Show-OcRecap {
     $retry = $true
     while ($retry) {
         $retry = $false
-        $sessions = @(Get-OcTodaySessions)
+        $sessions = @(Get-OcRecentSessions)
         $fromCache = $false
         if ($sessions.Count -eq 0) {
             $status = Get-OcServerStatus
             if ($status.Up) {
-                Write-Host "  Server raggiungibile ma nessuna sessione di oggi." -ForegroundColor Yellow
+                Write-Host "  Server raggiungibile ma nessuna sessione nelle ultime 24 ore." -ForegroundColor Yellow
                 return
             }
             $cached = @(Get-OcCachedSessions -TodayOnly)
@@ -461,7 +460,7 @@ function oc-resume {
         [switch]$Warp,
         [switch]$AllTabs
     )
-    $sessions = @(Get-OcTodaySessions)
+    $sessions = @(Get-OcRecentSessions)
 
     if ($sessions.Count -eq 0) {
         $status = Get-OcServerStatus
@@ -479,7 +478,7 @@ function oc-resume {
             }
             return
         }
-        Write-Host "Nessuna sessione di oggi (o SSH a chiave non configurato - esegui oc-connect)." -ForegroundColor Yellow
+        Write-Host "Nessuna sessione nelle ultime 24 ore (o SSH a chiave non configurato - esegui oc-connect)." -ForegroundColor Yellow
         return
     }
 

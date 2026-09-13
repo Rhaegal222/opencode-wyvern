@@ -1,0 +1,41 @@
+{
+  "name": "opencode-wyvern",
+  "version": "0.1.0",
+  "description": "Setup modulare per OpenCode: SSH, client PowerShell/bash (comandi oc-*), configurazione server opencode, provider, plugin e comandi custom. Installi tutto, attivi quello che vuoi.",
+  "type": "module",
+  "license": "MIT",
+  "author": {
+    "name": "Rhaegal222",
+    "url": "https://github.com/Rhaegal222"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "oc-setup": "bin/oc-setup.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "templates",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "opencode",
+    "ssh",
+    "setup",
+    "modular",
+    "cli",
+    "claude-mem",
+    "powershell",
+    "bash"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rhaegal222/opencode-wyvern.git"
+  },
+  "scripts": {
+    "test": "node bin/oc-setup.js --help"
+  }
+}

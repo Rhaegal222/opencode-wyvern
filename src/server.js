@@ -144,9 +144,11 @@ export function buildRemoteScript({ sections = new Set(), providers = new Set(),
 
   if (act("server")) {
     lines.push(
-      "if ! command -v opencode >/dev/null 2>&1; then",
+      "OPENCODE_BIN=\"$(command -v opencode 2>/dev/null || ls -t $HOME/.nvm/versions/node/*/bin/opencode 2>/dev/null | head -n1)\"",
+      "if [ -z \"$OPENCODE_BIN\" ]; then",
       "  log 'opencode mancante: lo installo (npm i -g opencode-ai)'",
       "  npm install -g opencode-ai >/dev/null 2>&1 || true",
+      "  OPENCODE_BIN=\"$(command -v opencode 2>/dev/null)\"",
       "fi",
       'CFG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"',
       'mkdir -p "$CFG_DIR/plugins" "$CFG_DIR/command"',

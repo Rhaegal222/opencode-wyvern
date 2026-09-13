@@ -45,8 +45,8 @@ async function collectEntrySmart(prev, needs) {
     })
   }
   if (needs.alias) {
-    out.server = await ask("Alias SSH (usato dai comandi oc-*)", {
-      hint: "rigo Host in ~/.ssh/config",
+    out.server = await ask("Nome con cui i comandi oc-* chiamano il server (alias SSH)", {
+      hint: "qualsiasi nome, es. server-casa — finisce in ~/.ssh/config e in OC_SERVER",
       defaultValue: d.server || "remote-server",
       validate: (v) => /^[a-zA-Z0-9._-]+$/.test(v),
     })

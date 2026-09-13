@@ -219,6 +219,8 @@ export function hostAliasBlock(cfg) {
   if (cfg.host) parts.push(`    HostName ${cfg.host}`)
   if (cfg.user) parts.push(`    User ${cfg.user}`)
   if (cfg.port && String(cfg.port) !== "22") parts.push(`    Port ${cfg.port}`)
+  parts.push("    ServerAliveInterval 30")
+  parts.push("    ServerAliveCountMax 5")
   parts.push("    StrictHostKeyChecking accept-new")
   return parts.join("\n")
 }

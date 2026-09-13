@@ -132,7 +132,7 @@ export function renderSection(id, cfg) {
 /** Applica una sezione locale (ssh, client) alla macchina corrente. */
 export async function applyLocalSection(id, cfg) {
   if (id === "client-pwsh" || id === "client-bash") {
-    await installClient(cfg.entry || cfg, { targets: [id] })
+    await installClient(cfg.entry || cfg, { targets: [id === "client-bash" ? "bash" : "pwsh"] })
     return
   }
   if (id === "ssh") {

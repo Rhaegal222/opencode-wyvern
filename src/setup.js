@@ -225,7 +225,7 @@ export async function cmdActivate(id) {
   if (getSection(id).kind === "remote") {
     console.log(c.dim(`  per applicarla sul server: oc-setup generate`))
   } else if (id === "client-pwsh" || id === "client-bash") {
-    await installClient(cfg.entry || SAMPLE_ENTRY, { targets: [id] })
+    await installClient(cfg.entry || SAMPLE_ENTRY, { targets: [id === "client-bash" ? "bash" : "pwsh"] })
   }
 }
 

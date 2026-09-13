@@ -1,6 +1,6 @@
 {
   "name": "opencode-wyvern",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Setup modulare per OpenCode: SSH, client PowerShell/bash (comandi oc-*), configurazione server opencode, provider, plugin e comandi custom. Installi tutto, attivi quello che vuoi.",
   "type": "module",
   "license": "MIT",

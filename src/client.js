@@ -63,6 +63,24 @@ function upsertBlock(filePath, block, { dryRun = false } = {}) {
 }
 
 /**
+ * Rimuove i blocchi client auto-generati (marker attuale o legacy) da un
+ * profilo, con backup dell'originale. Utile per la disinstallazione.
+ */
+export function stripClientBlock(filePath) {
+  if (!fs.existsSync(filePath)) return { filePath, changed: false }
+  const content = fs.readFileSync(filePath, "utf8")
+  const all = [MARKER, ...LEGACY_MARKERS]
+  const hits = all.map((m) => content.indexOf(m)).filter((i) => i !== -1)
+  if (!hits.length) return { filePath, changed: false }
+  const start = Math.min(...hits)
+  const stripped = content.slice(0, start).replace(/\s+$/, "")
+  const backup = `${filePath}.bak-${crypto.randomBytes(3).toString("hex")}`
+  fs.writeFileSync(backup, content, "utf8")
+  fs.writeFileSync(filePath, stripped ? stripped + "\n" : "", "utf8")
+  return { filePath, backup, changed: true }
+}
+
+/**
  * Installa i comandi client `oc-*` nei profili richiesti.
  * `onlyPrint` (null | "pwsh" | "bash") stampa il blocco renderizzato
  * senza modificare file. `targets` è l'array dei tipi da installare.

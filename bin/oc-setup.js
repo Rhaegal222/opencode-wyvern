@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { run, cmdStatus, cmdActivate, cmdDeactivate, cmdGenerate, cmdPrint, runPrintClient } from "../src/setup.js"
+import { runUninstall } from "../src/uninstall.js"
 
 const argv = process.argv.slice(2)
 
@@ -12,6 +13,7 @@ API key vengono richiesti/creati in locale durante l'esecuzione.
 Uso:
   oc-setup                              avvia la procedura guidata interattiva
   oc-setup generate                     riapplica le sezioni attive dalla config
+  oc-setup uninstall                    disinstallazione completa (client, config, cache, alias SSH)
   oc-setup status                       mostra i moduli e lo stato
   oc-setup activate <sezione>           attiva un modulo
   oc-setup deactivate <sezione>         disattiva un modulo
@@ -60,6 +62,9 @@ try {
       break
     case "generate":
       await cmdGenerate()
+      break
+    case "uninstall":
+      await runUninstall()
       break
     case "print":
       if (!arg1) fail("uso: oc-setup print <sezione>")

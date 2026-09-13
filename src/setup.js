@@ -323,6 +323,14 @@ if (!localOnly) {
     if (doInstall) {
       try {
         installKeyOnServer(entry)
+        if (verifyConnection(entry)) {
+          console.log(c.green(ui("  autenticazione SSH a chiave verificata.", "  SSH key authentication verified.")))
+        } else {
+          console.log(c.yellow(ui(
+            "  attenzione: la chiave e' stata copiata, ma l'accesso senza password non e' stato verificato. Controlla sshd e ~/.ssh/authorized_keys sul server.",
+            "  warning: the key was copied, but passwordless login could not be verified. Check sshd and ~/.ssh/authorized_keys on the server.",
+          )))
+        }
       } catch (err) {
         console.log(c.yellow(`  ${ui("attenzione:", "warning:")} ${err.message}`))
       }

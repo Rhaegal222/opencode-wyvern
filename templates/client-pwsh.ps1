@@ -26,13 +26,10 @@ function Sync-OcEnv {
 Sync-OcEnv
 
 function Get-OcPath {
-    if (-not $global:OC_OPENCODE) {
-        $remotePath = "(command -v opencode || ls -t ~/.nvm/versions/node/*/bin/opencode 2>/dev/null | head -n1)"
-        $found = ssh -o BatchMode=yes $env:OC_SERVER $remotePath 2>$null | Select-Object -First 1
-        if ($found) { $global:OC_OPENCODE = $found.Trim() }
-        else { $global:OC_OPENCODE = 'opencode' }
-    }
-    return $global:OC_OPENCODE
+    # Risolve opencode SUL SERVER al momento dell'esecuzione: funziona anche
+    # senza chiave SSH configurata (niente BatchMode) e senza opencode nel PATH
+    # del server (fallback sulle installazioni nvm ~/.nvm/versions/node/*/bin).
+    return '__oc_wyvern(){ OPENCODE_BIN="$(command -v opencode 2>/dev/null || ls -t $HOME/.nvm/versions/node/*/bin/opencode 2>/dev/null | head -n1)"; if [ -z "$OPENCODE_BIN" ]; then echo "[oc] ERRORE: opencode non trovato sul server. Esegui oc-setup scegliendo Client + Server, oppure installa sul server: npm install -g opencode-ai" >&2; return 127; fi; "$OPENCODE_BIN" "$@"; }; __oc_wyvern'
 }
 
 function oc-connect {
@@ -300,11 +297,21 @@ function oc-go {
     param(
         [Parameter(Mandatory)]
         [string]$Id,
-        [string]$Dir = "~",
+        [string]$Dir = "",
         [switch]$NoRecap
     )
     Sync-OcEnv
-    $null = @(Get-OcAllSessions)
+    if ($Id -notmatch '^[A-Za-z0-9_-]+$') {
+        Write-Host "ID sessione non valido." -ForegroundColor Red
+        return
+    }
+    if ([string]::IsNullOrWhiteSpace($Dir)) {
+        $found = @(Get-OcCachedSessions | Where-Object { $_.Id -eq $Id } | Select-Object -First 1)
+        if (-not $found.Count) {
+            $found = @(Get-OcAllSessions | Where-Object { $_.Id -eq $Id } | Select-Object -First 1)
+        }
+        $Dir = if ($found.Count) { $found[0].Dir } else { "~" }
+    }
     $oc = Get-OcPath
     if ($Dir -eq '~' -or [string]::IsNullOrEmpty($Dir)) {
         $remoteCmd = "cd ~ && $oc -s $Id"
@@ -334,6 +341,12 @@ function Show-OcRecap {
         $sessions = @(Get-OcRecentSessions)
         $fromCache = $false
         if ($sessions.Count -eq 0) {
+            if ($LastExit -eq 127) {
+                Write-Host "  [!] Comando remoto non trovato (SSH exit 127)." -ForegroundColor Red
+                Write-Host "      Probabile causa: opencode non e' installato sul server o non e' nel PATH della shell SSH." -ForegroundColor Yellow
+                Write-Host "      Risolvi con: oc-setup scegliendo Client + Server, oppure sul server: npm install -g opencode-ai" -ForegroundColor DarkGray
+                return
+            }
             $status = Get-OcServerStatus
             if ($status.Up) {
                 Write-Host "  Server raggiungibile ma nessuna sessione nelle ultime 24 ore." -ForegroundColor Yellow

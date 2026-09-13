@@ -244,11 +244,12 @@ export function ensureLocalKey() {
 export function installKeyOnServer(cfg) {
   const { pub } = keyPaths()
   const pubContent = fs.readFileSync(pub, "utf8").trim()
+  const pubB64 = Buffer.from(pubContent, "utf8").toString("base64")
   const target = sshTargetArgs(cfg)
   const remoteCmd =
-    "umask 077; mkdir -p ~/.ssh && grep -qF '" +
-    pubContent.split(" ")[0] +
-    "' ~/.ssh/authorized_keys 2>/dev/null || (cat >> ~/.ssh/authorized_keys); " +
+    `umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; ` +
+    `PUB="$(printf '%s' '${pubB64}' | base64 -d)"; ` +
+    `grep -qxF "$PUB" ~/.ssh/authorized_keys 2>/dev/null || printf '%s\\n' "$PUB" >> ~/.ssh/authorized_keys; ` +
     "chmod 700 ~/.ssh; chmod 600 ~/.ssh/authorized_keys; echo OK"
 
   console.log(c.cyan(ui(
@@ -278,6 +279,8 @@ export function hostAliasBlock(cfg) {
   if (cfg.host) parts.push(`    HostName ${cfg.host}`)
   if (cfg.user) parts.push(`    User ${cfg.user}`)
   if (cfg.port && String(cfg.port) !== "22") parts.push(`    Port ${cfg.port}`)
+  parts.push("    IdentityFile ~/.ssh/id_ed25519")
+  parts.push("    IdentitiesOnly yes")
   parts.push("    ServerAliveInterval 30")
   parts.push("    ServerAliveCountMax 5")
   parts.push("    StrictHostKeyChecking accept-new")
@@ -289,19 +292,37 @@ export function ensureSshConfigAlias(cfg) {
   const p = sshConfigPath()
   const target = `Host ${cfg.server}`
   let content = ""
+  const nextBlock = hostAliasBlock(cfg)
   if (fs.existsSync(p)) {
     content = fs.readFileSync(p, "utf8")
-    if (content.includes(target)) return false
+    const re = new RegExp(`(^|\\n)Host\\s+${cfg.server.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n(?:[ \\t].*(?:\\n|$))*`, "m")
+    if (re.test(content)) {
+      const updated = content.replace(re, (m, lead = "") => `${lead}${nextBlock}\n`)
+      if (updated === content) return false
+      fs.writeFileSync(p, updated, "utf8")
+      return true
+    }
     if (content && !content.endsWith("\n")) content += "\n"
   }
   ensureDir(path.dirname(p))
-  fs.writeFileSync(p, content + hostAliasBlock(cfg) + "\n", "utf8")
+  fs.writeFileSync(p, content + nextBlock + "\n", "utf8")
   return true
 }
 
 /** Verifica la connessione SSH senza password (BatchMode). */
 export function verifyConnection(cfg) {
-  const res = run("ssh", [...sshTargetArgs(cfg), "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "echo CONN_OK"], {
+  const { key } = keyPaths()
+  const target = cfg.server || sshTargetArgs(cfg).at(-1)
+  const targetArgs = cfg.server ? [] : sshTargetArgs(cfg).slice(0, -1)
+  const keyArgs = fs.existsSync(key) ? ["-i", key, "-o", "IdentitiesOnly=yes"] : []
+  const res = run("ssh", [
+    ...targetArgs,
+    ...keyArgs,
+    "-o", "BatchMode=yes",
+    "-o", "ConnectTimeout=8",
+    target,
+    "echo CONN_OK",
+  ], {
     silent: true,
     timeout: 20000,
   })
@@ -335,7 +356,7 @@ export function buildRemoteScript({ sections = new Set(), providers = new Set(),
       "if [ -z \"$OPENCODE_BIN\" ]; then",
       "  log 'opencode mancante: lo installo (npm i -g opencode-ai)'",
       "  npm install -g opencode-ai >/dev/null 2>&1 || true",
-      "  OPENCODE_BIN=\"$(command -v opencode 2>/dev/null)\"",
+      "  OPENCODE_BIN=\"$(command -v opencode 2>/dev/null || ls -t $HOME/.nvm/versions/node/*/bin/opencode 2>/dev/null | head -n1)\"",
       "fi",
       '[ -f package.json ] || printf \'{\\n  "private": true,\\n  "dependencies": {}\\n}\\n\' > package.json',
       "[ -f .gitignore ] || printf 'node_modules\\n.env\\n' > .gitignore",

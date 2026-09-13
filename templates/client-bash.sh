@@ -28,11 +28,10 @@ oc-sync-env
 
 oc-path() {
     oc-sync-env
-    if [ -z "$OC_OPENCODE" ]; then
-        OC_OPENCODE=$(ssh -o BatchMode=yes "$OC_SERVER" "(command -v opencode || ls -t \$HOME/.nvm/versions/node/*/bin/opencode 2>/dev/null | head -n1)" 2>/dev/null | head -n1)
-        [ -n "$OC_OPENCODE" ] || OC_OPENCODE='opencode'
-    fi
-    echo "$OC_OPENCODE"
+    # Risolve opencode SUL SERVER al momento dell'esecuzione: funziona anche
+    # senza chiave SSH configurata (BatchMode non tenuto) e senza opencode nel
+    # PATH del server (cade sulle installazioni nvm `~/.nvm/versions/node/*/bin`).
+    printf '%s' '__oc_wyvern(){ OPENCODE_BIN="$(command -v opencode 2>/dev/null || ls -t $HOME/.nvm/versions/node/*/bin/opencode 2>/dev/null | head -n1)"; if [ -z "$OPENCODE_BIN" ]; then echo "[oc] ERRORE: opencode non trovato sul server. Esegui oc-setup scegliendo Client + Server, oppure installa sul server: npm install -g opencode-ai" >&2; return 127; fi; "$OPENCODE_BIN" "$@"; }; __oc_wyvern'
 }
 
 oc-connect() {
@@ -201,10 +200,23 @@ oc-delete() {
 
 oc-go() {
     oc-sync-env
-    local id="$1" dir="${2:-~}" norecap=0 oc exit_code
+    local id="$1" dir="${2:-}" norecap=0 oc exit_code session_dir
     [ "$3" = "--no-recap" ] && norecap=1
+    if [ -z "$id" ]; then
+        echo -e "${RED}[FAIL] Specifica l'ID della sessione.${NC}"
+        return 2
+    fi
+    case "$id" in
+        *[![:alnum:]_-]*) echo -e "${RED}[FAIL] ID sessione non valido.${NC}"; return 2 ;;
+    esac
     oc="$(oc-path)"
-    oc-sessions-all >/dev/null 2>&1
+    if [ -z "$dir" ]; then
+        session_dir="$(oc-cache-load | awk -F '\t' -v wanted="$id" '$2 == wanted { print $4; exit }')"
+        if [ -z "$session_dir" ]; then
+            session_dir="$(oc-sessions-all | awk -F '\t' -v wanted="$id" '$2 == wanted { print $4; exit }')"
+        fi
+        dir="${session_dir:-~}"
+    fi
     mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/opencode-wyvern"
     printf '%s\t%s\n' "$id" "${dir:-~}" > "${XDG_CACHE_HOME:-$HOME/.cache}/opencode-wyvern/last.tsv"
     if [ "$dir" = "~" ] || [ -z "$dir" ]; then
@@ -229,6 +241,12 @@ oc-recap() {
     live="$(oc-sessions-today 2>/dev/null)"
     if [ -z "$live" ]; then
         cached="$(oc-cache-load)"
+        if [ "$last_exit" = "127" ]; then
+            echo -e "${RED}  [!] Comando remoto non trovato (SSH exit 127).${NC}"
+            echo -e "${YELLOW}      Probabile causa: opencode non e' installato sul server o non e' nel PATH della shell SSH.${NC}"
+            echo -e "${DARKGRAY:-}      Risolvi con: oc-setup scegliendo Client + Server, oppure sul server: npm install -g opencode-ai${NC}"
+            return 127
+        fi
         if [ -n "$cached" ]; then
             m="$(stat -c %y "${XDG_CACHE_HOME:-$HOME/.cache}/opencode-wyvern/sessions.tsv" 2>/dev/null | cut -d'.' -f1)"
             echo -e "${RED}  [!] Connessione persa alle $err_time (SSH exit $last_exit).${NC}"

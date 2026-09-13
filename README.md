@@ -20,7 +20,7 @@ npm install -g opencode-wyvern
 Il comando si chiama **`oc-setup`** (non `oc-help`, non `oc`). Verifica:
 
 ```bash
-oc-setup --version    # → 0.2.1
+oc-setup --version    # → 0.2.3
 ```
 
 Se compare `oc-setup: command not found` subito dopo l'installazione, il

@@ -153,24 +153,34 @@ function enableRaw() {
  * piping/test e ambiente completamente non interattivo).
  */
 const fallbackQueue = []
+let fallbackEof = false
+let fallbackBound = false
+const fallbackWaiters = []
+
+function pumpFallback() {
+  while (fallbackWaiters.length && (fallbackQueue.length || fallbackEof)) {
+    const done = fallbackWaiters.shift()
+    done(fallbackEof ? "q" : fallbackQueue.shift())
+  }
+}
 
 function readLineFallback(done) {
-  const next = () => {
-    if (fallbackQueue.length) {
-      const v = fallbackQueue.shift()
-      return done(v)
+  if (!fallbackBound) {
+    fallbackBound = true
+    input.on("data", (chunk) => {
+      fallbackQueue.push(...chunk.toString().split(/\r\n|\r|\n/))
+      pumpFallback()
+    })
+    const onEof = () => {
+      fallbackEof = true
+      pumpFallback()
     }
-    const onData = (chunk) => {
-      const text = chunk.toString()
-      const parts = text.split(/\r\n|\r|\n/)
-      fallbackQueue.push(...parts)
-      input.removeListener("data", onData)
-      next()
-    }
-    input.on("data", onData)
+    input.on("end", onEof)
+    input.on("close", onEof)
     input.resume()
   }
-  next()
+  fallbackWaiters.push(done)
+  pumpFallback()
 }
 
 /** Legge una riga da tastiera. `masked` oscura la digitazione (per segreti); */

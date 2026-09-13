@@ -158,16 +158,14 @@ function providerBlock(id, models, baseUrls = {}, omnirouteUrl = "") {
  * `envKey` = chiave d'ambiente da chiedere al setup (finisce in .env sul server).
  */
 export const MCP_PRESETS = {
-  "figma-desktop": {
-    label: "Figma Desktop — Dev Mode (localhost, nessun segreto)",
-    type: "remote",
-    url: "http://127.0.0.1:3845/mcp",
-  },
   "figma-developer": {
     label: "Figma Developer MCP — npx + Figma personal token",
     type: "local",
-    command: ["npx", "-y", "figma-developer-mcp", "--stdio"],
-    environment: { FIGMA_API_KEY: "{env:FIGMA_API_KEY}" },
+    command: ["npx", "-y", "figma-developer-mcp", "--stdio", "--no-telemetry"],
+    environment: {
+      FIGMA_API_KEY: "{env:FIGMA_API_KEY}",
+      PATH: "{env:PATH}",
+    },
     timeout: 15000,
     envKey: "FIGMA_API_KEY",
   },
@@ -175,14 +173,14 @@ export const MCP_PRESETS = {
 
 /** Raggruppa i preset MCP scelti nel blocco `mcp` di opencode.json. */
 export function buildMcpBlock(mcpList = []) {
-  const mcp = {}
+  const servers = {}
   for (const id of mcpList) {
     const p = MCP_PRESETS[id]
     if (!p) continue
     const { label, envKey, ...serv } = p
-    mcp[id] = serv
+    servers[id] = serv
   }
-  return mcp
+  return Object.keys(servers).length ? { servers } : {}
 }
 
 /** Modello default (inner ID) per un preset MCP che richiede un token. */
@@ -411,6 +409,19 @@ export function buildRemoteScript({ sections = new Set(), providers = new Set(),
     lines.push("chmod 600 \"$CFG_DIR/.env\"")
   } else if (act("server")) {
     lines.push("umask 077; [ -f \"$CFG_DIR/.env\" ] || : > \"$CFG_DIR/.env\"")
+  }
+
+  if (mcpList.includes("figma-developer")) {
+    lines.push(
+      'NVM_NODE_BIN="$(ls -dt \"$HOME\"/.nvm/versions/node/*/bin 2>/dev/null | head -n1)"',
+      'if [ -n "$NVM_NODE_BIN" ] && [ -x "$NVM_NODE_BIN/node" ]; then',
+      '  touch "$CFG_DIR/.env"',
+      '  grep -v "^PATH=" "$CFG_DIR/.env" > "$CFG_DIR/.env.tmp" || true',
+      '  printf \'PATH="%s:%s"\\n\' "$NVM_NODE_BIN" "$PATH" >> "$CFG_DIR/.env.tmp"',
+      '  mv "$CFG_DIR/.env.tmp" "$CFG_DIR/.env"',
+      '  chmod 600 "$CFG_DIR/.env"',
+      'fi',
+    )
   }
 
   lines.push('log "config opencode scritta in: $CFG_DIR"')

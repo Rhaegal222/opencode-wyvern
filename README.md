@@ -20,7 +20,7 @@ npm install -g opencode-wyvern
 Il comando si chiama **`oc-setup`** (non `oc-help`, non `oc`). Verifica:
 
 ```bash
-oc-setup --version    # → 0.2.3
+oc-setup --version    # → 0.2.4
 ```
 
 Se compare `oc-setup: command not found` subito dopo l'installazione, il
@@ -96,7 +96,7 @@ accodata al valore precedente.
 | `client-bash` | locale | stesso blocco in `~/.bashrc` |
 | `server`      | remoto | controlla node/npm, installa opencode se manca, crea `~/.config/opencode` + `AGENTS.md` |
 | `commands`    | remoto | comandi custom in `command/*.md` (`/baseline-ui`, `/omniroute-restart`, `/review`, ...) |
-| `mcp`         | remoto | server MCP preset (Figma Desktop, Figma Developer MCP); token in `.env` |
+| `mcp`         | remoto | server MCP preset (Figma Developer MCP); token in `.env` |
 | `providers`   | remoto | provider opencode in `opencode.json`; chiavi in `.env` |
 | `plugins`     | remoto | plugin npm installati nella dir config e listati in `opencode.json` |
 | `claude-mem`  | remoto | memoria: wrapper `plugins/claude-mem-plugin.js` |
@@ -125,10 +125,9 @@ Docker OmniRoute e attende che sia `healthy`), `/review`, `/refactor`, `/tests`,
 
 ## MCP
 
-La sezione `mcp` scrive il blocco `mcp` di `opencode.json` con i preset:
-**Figma Desktop** (Dev Mode, `http://127.0.0.1:3845/mcp`, nessun segreto) e
-**Figma Developer MCP** (stdio via `npx figma-developer-mcp`; il Figma personal
-token finisce in `.env` sul server, mai in `config.json`).
+La sezione `mcp` configura **Figma Developer MCP** (stdio via
+`npx figma-developer-mcp`). Il Figma personal access token finisce in `.env`
+sul server, mai in `config.json`.
 
 ## Client
 

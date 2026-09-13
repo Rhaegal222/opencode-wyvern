@@ -155,7 +155,6 @@ export const COMMAND_CHOICES = [
 ]
 
 export const MCP_CHOICES = [
-  { label: "Figma Desktop — Dev Mode (localhost, " + ui("nessun segreto", "no secret") + ")", value: "figma-desktop" },
   { label: "Figma Developer MCP — npx + " + ui("token personale Figma", "personal Figma token"), value: "figma-developer" },
 ]
 
@@ -196,7 +195,8 @@ export function serverState(cfg) {
     omnirouteUrl,
     baseUrls: cfg.baseUrls || {},
     customCommands: cfg.customCommands || [],
-    mcpList: cfg.mcpList || [],
+    // Ignora preset rimossi: `oc-setup generate` pulisce anche le vecchie config.
+    mcpList: (cfg.mcpList || []).filter((id) => MCP_PRESETS[id]),
     defaultModel,
     smallModel,
     tuning: cfg.tuning,

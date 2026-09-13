@@ -393,7 +393,8 @@ export async function cmdStatus() {
     console.log(`  server: provider ${providers.join(", ")}${urls.length ? ` · ${urls.join(" · ")}` : ""}${cfg.tuning ? ui(" · tuning on", " · tuning on") : ""}`)
   }
   if (cfg.customCommands?.length) console.log(`  cmds  : ${cfg.customCommands.map((x) => "/" + x).join(", ")}`)
-  if (cfg.mcpList?.length) console.log(`  mcp   : ${cfg.mcpList.join(", ")}`)
+  const mcpList = (cfg.mcpList || []).filter((id) => MCP_PRESETS[id])
+  if (mcpList.length) console.log(`  mcp   : ${mcpList.join(", ")}`)
   console.log("")
   console.log(ui("  moduli:", "  modules:"))
   for (const s of SECTIONS) {

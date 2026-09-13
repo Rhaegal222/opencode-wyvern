@@ -70,13 +70,18 @@ export function run(cmd, args = [], { silent = false, stdio = false, timeout = 1
 
 /** Trova un eseguibile nel PATH (Windows incluso). */
 export function which(bin) {
+  const winRoot = (process.env.SystemRoot || "C:\\Windows").toLowerCase()
   const scan = isWindows() ? process.env.PATH.split(";") : process.env.PATH.split(":")
   for (const dir of scan) {
     try {
       const candidates = isWindows() ? [bin, `${bin}.exe`, `${bin}.cmd`, `${bin}.ps1`] : [bin]
       for (const c of candidates) {
         const p = path.join(dir, c)
-        if (fs.existsSync(p)) return p
+        if (fs.existsSync(p)) {
+          // Su Windows, `C:\Windows\System32\bash.exe` è WSL (non eredita env)
+          if (isWindows() && p.toLowerCase().startsWith(winRoot) && c === "bash.exe") continue
+          return p
+        }
       }
     } catch {
       /* ignora */

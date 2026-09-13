@@ -1,9 +1,10 @@
 import fs from "node:fs"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
-import { keyPaths, sshConfigPath, run } from "./shell.js"
-import { readTemplate, ensureDir } from "./config.js"
+import { keyPaths, sshConfigPath, run, which } from "./shell.js"
+import { readTemplate, ensureDir, templatePath } from "./config.js"
 import { c } from "./prompts.js"
+import { ui } from "./i18n.js"
 
 /**
  * Catalogo dei provider opencode supportati dal wizard.
@@ -48,14 +49,23 @@ export const PROVIDER_META = {
     name: "OmniRoute (aggregator)",
     key: null,
     baseURLVar: true,
+    defBase: "http://127.0.0.1:20128/v1",
     defModels: [
       "auto/best-coding", "auto/best-reasoning", "auto/best-fast",
       "auto/cheap", "auto/best-free", "felo/felo-search", "felo/felo-scholar",
     ],
   },
+  ollama: {
+    npm: "@ai-sdk/openai-compatible",
+    name: "Ollama / vLLM (locale)",
+    key: null,
+    baseURLVar: true,
+    defBase: "http://127.0.0.1:11434/v1",
+    defModels: ["qwen2.5-coder:32b", "qwen2.5-coder:7b", "llama3.1:8b", "llama3.3:70b"],
+  },
 }
 
-export const PROVIDER_ORDER = ["copilot", "gemini", "zen", "anthropic", "openai", "omniroute"]
+export const PROVIDER_ORDER = ["copilot", "gemini", "zen", "anthropic", "openai", "omniroute", "ollama"]
 
 const MODEL_LABELS = {
   "gpt-4o": "GPT-4o", "gpt-4o-mini": "GPT-4o mini",
@@ -66,6 +76,8 @@ const MODEL_LABELS = {
   "auto/best-coding": "Auto: best coding", "auto/best-reasoning": "Auto: best reasoning",
   "auto/best-fast": "Auto: best fast", "auto/cheap": "Auto: cheap", "auto/best-free": "Auto: best free",
   "felo/felo-search": "Felo: web search", "felo/felo-scholar": "Felo: academic search",
+  "qwen2.5-coder:32b": "Qwen2.5 Coder 32B", "qwen2.5-coder:7b": "Qwen2.5 Coder 7B",
+  "llama3.1:8b": "Llama 3.1 8B", "llama3.3:70b": "Llama 3.3 70B",
 }
 
 /** Nome del provider nel JSON opencode (la chiave "opencode" è per OpenCode Zen). */
@@ -125,27 +137,69 @@ function merchantEntry(p, omnirouteUrl) {
   return PLUGIN_PKG[p]
 }
 
-function providerBlock(id, models, omnirouteUrl) {
+function providerBlock(id, models, baseUrls = {}, omnirouteUrl = "") {
   const meta = PROVIDER_META[id]
   const block = { npm: meta.npm, name: meta.name }
   if (meta.key) block.env = [meta.key]
   if (meta.baseURL) block.options = { baseURL: meta.baseURL }
-  if (meta.baseURLVar) block.options = { baseURL: omnirouteProviderUrl(omnirouteUrl) }
+  if (meta.baseURLVar) {
+    const url = id === "omniroute"
+      ? baseUrls[id] || omnirouteProviderUrl(omnirouteUrl)
+      : baseUrls[id] || meta.defBase
+    block.options = { baseURL: url }
+  }
   block.models = meta.fixedModels
     || Object.fromEntries(models.map((m) => [m, { name: MODEL_LABELS[m] || m }]))
   return block
 }
 
 /**
+ * Preset MCP pronti da abilitare nel config server.
+ * `envKey` = chiave d'ambiente da chiedere al setup (finisce in .env sul server).
+ */
+export const MCP_PRESETS = {
+  "figma-desktop": {
+    label: "Figma Desktop — Dev Mode (localhost, nessun segreto)",
+    type: "remote",
+    url: "http://127.0.0.1:3845/mcp",
+  },
+  "figma-developer": {
+    label: "Figma Developer MCP — npx + Figma personal token",
+    type: "local",
+    command: ["npx", "-y", "figma-developer-mcp", "--stdio"],
+    environment: { FIGMA_API_KEY: "{env:FIGMA_API_KEY}" },
+    timeout: 15000,
+    envKey: "FIGMA_API_KEY",
+  },
+}
+
+/** Raggruppa i preset MCP scelti nel blocco `mcp` di opencode.json. */
+export function buildMcpBlock(mcpList = []) {
+  const mcp = {}
+  for (const id of mcpList) {
+    const p = MCP_PRESETS[id]
+    if (!p) continue
+    const { label, envKey, ...serv } = p
+    mcp[id] = serv
+  }
+  return mcp
+}
+
+/** Modello default (inner ID) per un preset MCP che richiede un token. */
+export function mcpEnvKey(mcpList = []) {
+  return mcpList.map((id) => MCP_PRESETS[id]?.envKey).find(Boolean) || null
+}
+
+/**
  * Costruisce opencode.json dal server in modo programmatico (solo sezioni attive).
  * Nessun segreto nel JSON: le chiavi restano in .env (dichiarate con "env": [...]).
  */
-export function buildServerConfig({ providers = new Set(), models = {}, omnirouteUrl = "", defaultModel, smallModel, tuning = false, plugins = [], claudeMem = false } = {}) {
+export function buildServerConfig({ providers = new Set(), models = {}, baseUrls = {}, omnirouteUrl = "", defaultModel, smallModel, tuning = false, plugins = [], claudeMem = false, mcpList = [] } = {}) {
   const provider = {}
   for (const id of PROVIDER_ORDER) {
     if (providers.has(id)) {
       const list = (models[id] || PROVIDER_META[id].defModels.join(", ")).split(",").map((s) => s.trim()).filter(Boolean)
-      provider[providerJsonKey(id)] = providerBlock(id, list, omnirouteUrl)
+      provider[providerJsonKey(id)] = providerBlock(id, list, baseUrls, omnirouteUrl)
     }
   }
 
@@ -157,6 +211,8 @@ export function buildServerConfig({ providers = new Set(), models = {}, omnirout
     provider,
     plugin,
   }
+  const mcp = buildMcpBlock(mcpList || [])
+  if (Object.keys(mcp).length) out.mcp = mcp
   if (defaultModel) out.model = defaultModel
   if (smallModel) out.small_model = smallModel
   if (tuning) {
@@ -173,7 +229,7 @@ export function ensureLocalKey() {
   if (fs.existsSync(key) && fs.existsSync(pub)) {
     return { key, pub, created: false }
   }
-  console.log(c.cyan("[..] Genero la SSH key ed25519 (senza passphrase)..."))
+  console.log(c.cyan(ui("[..] Genero la SSH key ed25519 (senza passphrase)...", "[..] Generating the ed25519 SSH key (no passphrase)...")))
   const gen = spawnSync("ssh-keygen", ["-t", "ed25519", "-C", "", "-f", key, "-N", ""], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
   if (gen.status !== 0) {
     throw new Error(`ssh-keygen fallito: ${(gen.stderr || "").toString().trim()}`)
@@ -195,7 +251,10 @@ export function installKeyOnServer(cfg) {
     "' ~/.ssh/authorized_keys 2>/dev/null || (cat >> ~/.ssh/authorized_keys); " +
     "chmod 700 ~/.ssh; chmod 600 ~/.ssh/authorized_keys; echo OK"
 
-  console.log(c.cyan(`[..] Installo la chiave su ${c.bold(target.join(" "))} (password una volta)...`))
+  console.log(c.cyan(ui(
+    `[..] Installo la chiave su ${c.bold(target.join(" "))} (password una volta)...`,
+    `[..] Installing the key on ${c.bold(target.join(" "))} (one-time password)...`,
+  )))
   const res = spawnSync("ssh", [...target, remoteCmd], {
     encoding: "utf8",
     stdio: ["pipe", "inherit", "inherit"],
@@ -205,7 +264,7 @@ export function installKeyOnServer(cfg) {
   if (res.status !== 0) {
     throw new Error(`installazione chiave fallita (exit ${res.status})`)
   }
-  console.log(c.green("  chiave installata."))
+  console.log(c.green(ui("  chiave installata.", "  key installed.")))
 }
 
 export function sshTargetArgs({ user, host, port }) {
@@ -255,7 +314,7 @@ export function verifyConnection(cfg) {
  * I segreti (API key) finiscono solo in .env (chmod 600) quando la sezione providers
  * è attiva e l'utente ne ha fornite.
  */
-export function buildRemoteScript({ sections = new Set(), providers = new Set(), models = {}, omnirouteUrl = "", defaultModel, smallModel, tuning = false, plugins = [], claudeMem = false, envKeys = {} } = {}) {
+export function buildRemoteScript({ sections = new Set(), providers = new Set(), models = {}, baseUrls = {}, omnirouteUrl = "", defaultModel, smallModel, tuning = false, plugins = [], claudeMem = false, envKeys = {}, customCommands = [], mcpList = [] } = {}) {
   const esc = (s) => Buffer.from(s, "utf8").toString("base64")
   const act = (id) => sections.has(id)
 
@@ -265,6 +324,9 @@ export function buildRemoteScript({ sections = new Set(), providers = new Set(),
     "command -v node >/dev/null || { log 'ERRORE: node non trovato sul server'; exit 2; }",
     "command -v npm  >/dev/null || { log 'ERRORE: npm non trovato sul server'; exit 2; }",
     "log \"node: $(node -v)\"",
+    'CFG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"',
+    'mkdir -p "$CFG_DIR/plugins" "$CFG_DIR/command"',
+    'cd "$CFG_DIR"',
   ]
 
   if (act("server")) {
@@ -275,9 +337,6 @@ export function buildRemoteScript({ sections = new Set(), providers = new Set(),
       "  npm install -g opencode-ai >/dev/null 2>&1 || true",
       "  OPENCODE_BIN=\"$(command -v opencode 2>/dev/null)\"",
       "fi",
-      'CFG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"',
-      'mkdir -p "$CFG_DIR/plugins" "$CFG_DIR/command"',
-      'cd "$CFG_DIR"',
       '[ -f package.json ] || printf \'{\\n  "private": true,\\n  "dependencies": {}\\n}\\n\' > package.json',
       "[ -f .gitignore ] || printf 'node_modules\\n.env\\n' > .gitignore",
       `echo '${esc(readTemplate("AGENTS.md"))}' | base64 -d > "$CFG_DIR/AGENTS.md"`,
@@ -285,7 +344,20 @@ export function buildRemoteScript({ sections = new Set(), providers = new Set(),
   }
 
   if (act("commands")) {
-    lines.push(`echo '${esc(readTemplate("command-baseline-ui.md"))}' | base64 -d > "$CFG_DIR/command/baseline-ui.md"`)
+    const cmds = (customCommands && customCommands.length ? customCommands : ["baseline-ui"])
+    for (const id of cmds) {
+      const tpl = `command-${id}.md`
+      if (fs.existsSync(templatePath(tpl))) {
+        lines.push(`echo '${esc(readTemplate(tpl))}' | base64 -d > "$CFG_DIR/command/${id}.md"`)
+      }
+    }
+  }
+
+  if (act("mcp")) {
+    const mcpIds = mcpList || []
+    if (mcpIds.length) {
+      lines.push(`log "MCP: ${mcpIds.join(", ")}"`)
+    }
   }
 
   if (claudeMem) {
@@ -302,14 +374,14 @@ export function buildRemoteScript({ sections = new Set(), providers = new Set(),
   const pluginPkgs = [...new Set((plugins || []).map((p) => PLUGIN_PKG[p]).filter(Boolean))]
   if (pluginPkgs.length) lines.push(`npm install ${pluginPkgs.join(" ")} >/dev/null 2>&1 || true`)
 
-  const hasServer = act("server") || act("commands") || act("plugins") || claudeMem || providers.size > 0
+  const hasServer = act("server") || act("commands") || act("plugins") || claudeMem || providers.size > 0 || (mcpList && mcpList.length > 0)
   if (hasServer) {
-    const json = buildServerConfig({ providers, models, omnirouteUrl, defaultModel, smallModel, tuning, plugins, claudeMem })
+    const json = buildServerConfig({ providers, models, baseUrls, omnirouteUrl, defaultModel, smallModel, tuning, plugins, claudeMem, mcpList })
     lines.push(`echo '${esc(JSON.stringify(json, null, 2))}' | base64 -d > "$CFG_DIR/opencode.json"`)
   }
 
   const keyEntries = Object.entries(envKeys || {}).filter(([, v]) => v)
-  if (act("providers") && keyEntries.length) {
+  if ((act("providers") || act("mcp")) && keyEntries.length) {
     lines.push("umask 077")
     lines.push("printf '' > \"$CFG_DIR/.env\"")
     for (const [k, v] of keyEntries) {
@@ -329,11 +401,47 @@ export function buildRemoteScript({ sections = new Set(), providers = new Set(),
 export function runRemote(cfg, script) {
   const b64 = Buffer.from(script, "utf8").toString("base64")
   const remoteCmd = `printf '%s' ${b64} | base64 -d | bash`
-  console.log(c.cyan("[..] Eseguo bootstrap sul server (può richiedere qualche minuto)..."))
+  console.log(c.cyan(ui(
+    "[..] Eseguo bootstrap sul server (può richiedere qualche minuto)...",
+    "[..] Running bootstrap on the server (may take a few minutes)...",
+  )))
   const res = spawnSync("ssh", [...sshTargetArgs(cfg), remoteCmd], {
     encoding: "utf8",
     stdio: ["inherit", "inherit", "inherit"],
     timeout: 600000,
+  })
+  return { ok: res.status === 0, status: res.status }
+}
+
+/**
+ * Esegue lo script di setup in locale, direttamente sulla macchina server
+ * ("server-only in localhost"): niente SSH, i file finiscono in ~/.config/opencode.
+ * Richiede bash sulla macchina (Linux/macOS, oppure Git Bash/WSL su Windows).
+ */
+export function runScriptLocal(script) {
+  const bash = which("bash")
+  if (!bash) {
+    throw new Error(ui(
+      "server-only locale richiede bash su questa macchina (esegui il wizard direttamente dentro il server, Linux/macOS o Git Bash/WSL).",
+      "server-only local requires bash on this machine (run the wizard directly on the server, Linux/macOS or Git Bash/WSL).",
+    ))
+  }
+  console.log(c.cyan(ui(
+    "[..] Eseguo bootstrap in locale su questa macchina (può richiedere qualche minuto)...",
+    "[..] Running bootstrap locally on this machine (may take a few minutes)...",
+  )))
+  const env = { ...process.env }
+  // Conversione HOME in path POSIX (Git Bash/MSYS2 su Windows); su Linux resta com'è.
+  const rawHome = env.HOME || env.USERPROFILE
+  if (rawHome && /^[A-Za-z]:[\\/]/.test(rawHome)) {
+    const drive = rawHome[0].toLowerCase()
+    env.HOME = `/${drive}/${rawHome.slice(2).replace(/\\/g, "/")}`
+  }
+  const res = spawnSync(bash, ["-c", script], {
+    encoding: "utf8",
+    stdio: ["inherit", "inherit", "inherit"],
+    timeout: 600000,
+    env,
   })
   return { ok: res.status === 0, status: res.status }
 }

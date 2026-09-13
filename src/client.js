@@ -1,8 +1,10 @@
 import fs from "node:fs"
+import path from "node:path"
 import crypto from "node:crypto"
-import { render, readTemplate } from "./config.js"
+import { render, readTemplate, ensureDir } from "./config.js"
 import { pwshProfilePath, bashRcPath } from "./shell.js"
 import { c } from "./prompts.js"
+import { ui } from "./i18n.js"
 
 export const MARKER = "# ---- OpenCode Wyvern (auto-generato) ----"
 /** Marker storici: un blocco generato in passato va comunque rimosso. */
@@ -31,6 +33,7 @@ export function renderClient(kind, { server, host, user, dir }) {
 
 /** Sostituisce/crea il blocco generato in un profilo, con backup. */
 function upsertBlock(filePath, block, { dryRun = false } = {}) {
+  ensureDir(path.dirname(filePath)) // la dir del profilo può non esistere (machina nuova)
   const existed = fs.existsSync(filePath)
   let content = existed ? fs.readFileSync(filePath, "utf8") : ""
 
@@ -100,10 +103,11 @@ export async function installClient(cfg, { targets = ["pwsh", "bash"], onlyPrint
     results.push(upsertBlock(target.path(), block))
   }
 
-  console.log(c.green("\nClient installato:"))
+  console.log(c.green(`${ui("\nClient installato:", "\nClient installed:")}`))
   for (const r of results) {
     console.log(`  - ${r.filePath}${r.backup ? `  (backup: ${r.backup})` : ""}`)
   }
-  console.log(c.dim("\nRicarica il profilo con:  . $PROFILE   (PowerShell)  /  source ~/.bashrc   (bash)"))
+  console.log(c.dim(ui("\nRicarica il profilo con:  . $PROFILE   (PowerShell)  /  source ~/.bashrc   (bash)",
+    "\nReload your profile with:  . $PROFILE   (PowerShell)  /  source ~/.bashrc   (bash)")))
   return { installed: results }
 }

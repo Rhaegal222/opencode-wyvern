@@ -15,12 +15,18 @@ oc-setup
 
 La procedura guidata:
 
-1. **Moduli** — scegli quali sezioni attivare (default: tutte).
-2. **Connessione** — solo i dati necessari ai moduli scelti
+1. **Scenario** — scegli subito il contesto: **Client + Server** (tutto),
+   **Solo client**, **Solo server** o **Personalizzato** (sezioni singole).
+2. Con **Solo server** viene chiesto come applicare lo script: **via SSH da questo
+   client** o **in locale su questa macchina (localhost)** — in quest'ultimo caso
+   non serve host/porta né la chiave SSH.
+3. **Moduli** — con uno scenario preimpostato le sezioni sono già selezionate;
+   con "Personalizzato" le scegli una a una.
+4. **Connessione** — solo i dati necessari ai moduli scelti
    (host obbligatorio solo se usi SSH/sezioni remote; coi soli client basta l'alias).
-3. **Provider / plugin / claude-mem** — solo se le sezioni corrispondenti sono attive;
-   endpoint e chiavi sono richieste al volo.
-4. **Applicazione** — chiave SSH, alias, profili client e bootstrap remoto.
+5. **Provider / plugin / claude-mem / comandi / MCP** — solo se le sezioni
+   corrispondenti sono attive; endpoint e chiavi vengono richieste al volo.
+6. **Applicazione** — chiave SSH, alias, profili client e bootstrap (remoto o locale).
 
 Le sezioni restano salvate in `~/.config/opencode-wyvern/config.json`
 (solo dati non sensibili) e puoi attivarle/disattivarle in seguito.
@@ -36,6 +42,17 @@ oc-setup deactivate <sezione>         disattiva un modulo
 oc-setup print <sezione>              stampa l'artefatto di una sezione
 ```
 
+Nella procedura guidata: frecce/Spazio per navigare, `Invio` conferma,
+`Esc`/`Ctrl+C` annullano, `q` esce. **CTRL+SHIFT+C** in un terminale vero copia
+la selezione (gestito dal terminale, mai visto dal wizard) e **CTRL+SHIFT+V**
+incolla: un token con la lettera `q` o con un `a-capo` finale viene accettato
+senza chiudere il setup e senza caratteri spuri.
+
+La **cartella remota di default** (del menu Connessione) parte già dalla home
+dell'utente sul server: lasciala **vuota** per `~`, scrivi un percorso relativo
+(es. `projects/foo` → `~/projects/foo`) o assoluto (`/srv/data`). Non viene mai
+accodata al valore precedente.
+
 ## Moduli
 
 | Sezione       | Dove  | Cosa fa |
@@ -44,7 +61,8 @@ oc-setup print <sezione>              stampa l'artefatto di una sezione
 | `client-pwsh` | locale | comandi `oc-*` nel profilo PowerShell (`oc-sessions`, `oc-go`, `oc-resume`, `oc-recap`, ...) |
 | `client-bash` | locale | stesso blocco in `~/.bashrc` |
 | `server`      | remoto | controlla node/npm, installa opencode se manca, crea `~/.config/opencode` + `AGENTS.md` |
-| `commands`    | remoto | comando `/baseline-ui` (`command/baseline-ui.md`) |
+| `commands`    | remoto | comandi custom in `command/*.md` (`/baseline-ui`, `/omniroute-restart`, `/review`, ...) |
+| `mcp`         | remoto | server MCP preset (Figma Desktop, Figma Developer MCP); token in `.env` |
 | `providers`   | remoto | provider opencode in `opencode.json`; chiavi in `.env` |
 | `plugins`     | remoto | plugin npm installati nella dir config e listati in `opencode.json` |
 | `claude-mem`  | remoto | memoria: wrapper `plugins/claude-mem-plugin.js` |
@@ -52,15 +70,31 @@ oc-setup print <sezione>              stampa l'artefatto di una sezione
 ## Provider presets
 
 La sezione `providers` propone (checkbox): **GitHub Copilot**, **Google Gemini**,
-**OpenCode Zen**, **Anthropic Claude**, **OpenAI / Codex** e **OmniRoute**
-(gateway multi-modello con supporto `auto/*`). Le chiavi vengono chieste al setup
-solo per i provider che le richiedono (`GOOGLE_GENERATIVE_AI_API_KEY`,
-`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) e finiscono solo nel `.env` remoto.
-Per OmniRoute viene chiesto l'URL del gateway (default `http://127.0.0.1:20128`).
+**OpenCode Zen**, **Anthropic Claude**, **OpenAI / Codex**, **OmniRoute**
+(gateway multi-modello con supporto `auto/*`) e **Ollama / vLLM** (modelli locali
+OpenAI-compatible: viene chiesto il base URL, default `http://127.0.0.1:11434/v1`).
+Le chiavi vengono chieste al setup solo per i provider che le richiedono
+(`GOOGLE_GENERATIVE_AI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) e
+finiscono solo nel `.env` remoto. Per OmniRoute viene chiesto l'URL del gateway
+(default `http://127.0.0.1:20128`).
 
 Il modello default è scelto automaticamente (con OmniRoute: `omniroute/auto/best-coding`,
 altrimenti il primo modello del primo provider attivo), insieme a `small_model`.
 Un'opzione del setup aggiunge i tuning collaudati `tool_output` e `compaction`.
+
+## Comandi custom
+
+La sezione `commands` installa agent in `~/.config/opencode/command/*.md`:
+`/baseline-ui` (baseline interfacce), `/omniroute-restart` (riavvia il container
+Docker OmniRoute e attende che sia `healthy`), `/review`, `/refactor`, `/tests`,
+`/commit`, `/explain`.
+
+## MCP
+
+La sezione `mcp` scrive il blocco `mcp` di `opencode.json` con i preset:
+**Figma Desktop** (Dev Mode, `http://127.0.0.1:3845/mcp`, nessun segreto) e
+**Figma Developer MCP** (stdio via `npx figma-developer-mcp`; il Figma personal
+token finisce in `.env` sul server, mai in `config.json`).
 
 ## Client
 

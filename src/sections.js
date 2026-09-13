@@ -1,6 +1,7 @@
 import { c } from "./prompts.js"
+import { ui } from "./i18n.js"
 import { renderClient, installClient } from "./client.js"
-import { buildRemoteScript, runRemote, verifyConnection, chooseDefaultModels } from "./server.js"
+import { buildRemoteScript, runRemote, runScriptLocal, verifyConnection, chooseDefaultModels } from "./server.js"
 
 /**
  * Catalogo delle sezioni del setup. Ogni sezione è un modulo indipendente:
@@ -13,65 +14,149 @@ export const SECTIONS = [
     id: "ssh",
     kind: "local",
     group: "core",
-    label: "SSH — chiave, alias, install sul server",
-    desc: "Genera/riusa ~/.ssh/id_ed25519 (senza passphrase), aggiunge l'alias a ~/.ssh/config e installa la chiave sul server (password una volta).",
+    label: ui("SSH — chiave, alias, install sul server", "SSH — key, alias, server install"),
+    desc: ui(
+      "Genera/riusa ~/.ssh/id_ed25519 (senza passphrase), aggiunge l'alias a ~/.ssh/config e installa la chiave sul server (password una volta).",
+      "Generates/reuses ~/.ssh/id_ed25519 (no passphrase), adds the alias to ~/.ssh/config and installs the key on the server (one-time password).",
+    ),
   },
   {
     id: "client-pwsh",
     kind: "local",
     group: "client",
-    label: "Client PowerShell — comandi oc-*",
-    desc: "Blocco oc-*, oc-go, oc-resume, oc-recap nel profilo PowerShell.",
+    label: ui("Client PowerShell — comandi oc-*", "PowerShell client — oc-* commands"),
+    desc: ui(
+      "Blocco oc-*, oc-go, oc-resume, oc-recap nel profilo PowerShell.",
+      "oc-*, oc-go, oc-resume, oc-recap block in the PowerShell profile.",
+    ),
   },
   {
     id: "client-bash",
     kind: "local",
     group: "client",
-    label: "Client bash — comandi oc-*",
-    desc: "Stesso blocco in ~/.bashrc.",
+    label: ui("Client bash — comandi oc-*", "bash client — oc-* commands"),
+    desc: ui(
+      "Stesso blocco in ~/.bashrc.",
+      "Same block in ~/.bashrc.",
+    ),
   },
   {
     id: "server",
     kind: "remote",
     group: "server",
-    label: "Server — bootstrap opencode",
-    desc: "Controlla node/npm, installa opencode se manca, crea ~/.config/opencode e AGENTS.md.",
+    label: ui("Server — bootstrap opencode", "Server — opencode bootstrap"),
+    desc: ui(
+      "Controlla node/npm, installa opencode se manca, crea ~/.config/opencode e AGENTS.md.",
+      "Checks node/npm, installs opencode if missing, creates ~/.config/opencode and AGENTS.md.",
+    ),
   },
   {
     id: "commands",
     kind: "remote",
     group: "server",
-    label: "Server — comando /baseline-ui",
-    desc: "Scrive command/baseline-ui.md (baseline di interfaccia).",
+    label: ui(
+      "Server — comandi custom (/baseline-ui, /review, /omniroute-restart…)",
+      "Server — custom commands (/baseline-ui, /review, /omniroute-restart…)",
+    ),
+    desc: ui(
+      "Scrive i comandi selezionati in ~/.config/opencode/command/*.md (agent in opencode).",
+      "Writes the selected commands to ~/.config/opencode/command/*.md (opencode agents).",
+    ),
+  },
+  {
+    id: "mcp",
+    kind: "remote",
+    group: "server",
+    label: ui("Server — MCP (Figma Design…)", "Server — MCP (Figma Design…)"),
+    desc: ui(
+      "Blocco mcp in opencode.json per server figma; i token finiscono in .env sul server (chmod 600).",
+      "mcp block in opencode.json for figma servers; tokens go to .env on the server (chmod 600).",
+    ),
   },
   {
     id: "providers",
     kind: "remote",
     group: "server",
-    label: "Server — provider (Copilot, Gemini, Zen, Anthropic, OpenAI, OmniRoute)",
-    desc: "SDK + blocco provider in opencode.json; API key in .env sul server (chmod 600).",
+    label: ui(
+      "Server — provider (Copilot, Gemini, Zen, Anthropic, OpenAI, OmniRoute, Ollama)",
+      "Server — providers (Copilot, Gemini, Zen, Anthropic, OpenAI, OmniRoute, Ollama)",
+    ),
+    desc: ui(
+      "SDK + blocco provider in opencode.json; API key in .env sul server (chmod 600).",
+      "SDK + provider block in opencode.json; API keys in .env on the server (chmod 600).",
+    ),
   },
   {
     id: "plugins",
     kind: "remote",
     group: "server",
-    label: "Server — plugin (copilot-auth, claude-auth, kimi, omniroute)",
-    desc: "Plugin npm installati in ~/.config/opencode e listati in opencode.json.",
+    label: ui(
+      "Server — plugin (copilot-auth, claude-auth, kimi, omniroute)",
+      "Server — plugins (copilot-auth, claude-auth, kimi, omniroute)",
+    ),
+    desc: ui(
+      "Plugin npm installati in ~/.config/opencode e listati in opencode.json.",
+      "npm plugins installed in ~/.config/opencode and listed in opencode.json.",
+    ),
   },
   {
     id: "claude-mem",
     kind: "remote",
     group: "server",
-    label: "Server — claude-mem (memoria)",
-    desc: "Installa opcode-mem + wrapper plugins/claude-mem-plugin.js.",
+    label: ui("Server — claude-mem (memoria)", "Server — claude-mem (memory)"),
+    desc: ui(
+      "Installa opcode-mem + wrapper plugins/claude-mem-plugin.js.",
+      "Installs opcode-mem + plugins/claude-mem-plugin.js wrapper.",
+    ),
   },
 ]
 
+/**
+ * Configurazioni associate a ciascuna sezione: il wizard chiede SOLO quelle
+ * delle sezioni selezionate (principio "ogni sezione → le sue config").
+ * Le config di connessione (host/user/port) sono condivise: chiunque le
+ * richieda le riceve una volta sola.
+ */
+const SSH_CONN = ["host", "user", "port"]
+export const SECTION_CONFIGS = {
+  ssh: [...SSH_CONN, "alias", "keyInstall"],
+  "client-pwsh": ["alias", "dir"],
+  "client-bash": ["alias", "dir"],
+  server: [...SSH_CONN, "tuning"],
+  commands: [...SSH_CONN, "customCommands"],
+  mcp: [...SSH_CONN, "mcpList"],
+  providers: [...SSH_CONN, "providersList", "omnirouteUrl", "apiKeys", "tuning"],
+  plugins: [...SSH_CONN, "pluginsList", "tuning"],
+  "claude-mem": [...SSH_CONN, "tuning"],
+}
+
+/** Unione delle configurazioni richieste da un insieme di sezioni. */
+export function neededConfigs(sectionIds) {
+  const set = new Set()
+  for (const id of sectionIds) for (const k of SECTION_CONFIGS[id] || []) set.add(k)
+  return set
+}
+
 export const PLUGIN_CHOICES = [
-  { label: "copilot-auth (auth GitHub Copilot)", value: "copilot-auth" },
-  { label: "claude-auth (auth Claude)", value: "claude-auth" },
+  { label: ui("copilot-auth (auth GitHub Copilot)", "copilot-auth (GitHub Copilot auth)"), value: "copilot-auth" },
+  { label: ui("claude-auth (auth Claude)", "claude-auth (Claude auth)"), value: "claude-auth" },
   { label: "kimi-subscription", value: "kimi" },
-  { label: "omniroute (gateway multi-modello)", value: "omniroute" },
+  { label: ui("omniroute (gateway multi-modello)", "omniroute (multi-model gateway)"), value: "omniroute" },
+]
+
+export const COMMAND_CHOICES = [
+  { label: "/baseline-ui — " + ui("baseline interfacce/strutture", "interface/structure baseline"), value: "baseline-ui", default: true },
+  { label: "/omniroute-restart — " + ui("riavvia il container Docker OmniRoute", "restarts the OmniRoute Docker container"), value: "omniroute-restart" },
+  { label: "/review — " + ui("checklist code review", "code review checklist"), value: "review" },
+  { label: "/refactor — " + ui("piano di refactoring", "refactoring plan"), value: "refactor" },
+  { label: "/tests — " + ui("genera casi di test", "generates test cases"), value: "tests" },
+  { label: "/commit — " + ui("messaggio commit convenzionale", "conventional commit message"), value: "commit" },
+  { label: "/explain — " + ui("spiega un blocco di codice", "explains a code block"), value: "explain" },
+]
+
+export const MCP_CHOICES = [
+  { label: "Figma Desktop — Dev Mode (localhost, " + ui("nessun segreto", "no secret") + ")", value: "figma-desktop" },
+  { label: "Figma Developer MCP — npx + " + ui("token personale Figma", "personal Figma token"), value: "figma-developer" },
 ]
 
 export function getSection(id) {
@@ -109,6 +194,9 @@ export function serverState(cfg) {
     claudeMem: sections.has("claude-mem"),
     models,
     omnirouteUrl,
+    baseUrls: cfg.baseUrls || {},
+    customCommands: cfg.customCommands || [],
+    mcpList: cfg.mcpList || [],
     defaultModel,
     smallModel,
     tuning: cfg.tuning,
@@ -120,7 +208,7 @@ export function serverState(cfg) {
 export function renderSection(id, cfg) {
   if (id === "client-pwsh") return { content: renderClient("pwsh", cfg.entry || cfg) }
   if (id === "client-bash") return { content: renderClient("bash", cfg.entry || cfg) }
-  const remoteIds = new Set(["server", "commands", "providers", "plugins", "claude-mem"])
+  const remoteIds = new Set(["server", "commands", "providers", "plugins", "claude-mem", "mcp"])
   if (remoteIds.has(id)) {
     const state = serverState(cfg)
     const only = new Set([id])
@@ -135,24 +223,38 @@ export async function applyLocalSection(id, cfg) {
     await installClient(cfg.entry || cfg, { targets: [id === "client-bash" ? "bash" : "pwsh"] })
     return
   }
-  if (id === "ssh") {
-    console.log(c.cyan("[..] Chiave SSH + alias (l'installazione sul server richiede la password una volta)..."))
-    // nulla da fare qui: la chiave/alias vengono gestiti dal wizard
+if (id === "ssh") {
+    console.log(c.cyan(ui(
+      "[..] Chiave SSH + alias (l'installazione sul server richiede la password una volta)...",
+      "[..] SSH key + alias (installing on the server requires the one-time password)...",
+    )))
   }
 }
 
-/** Applica le sezioni remoto: compone lo script e lo esegue via SSH. */
-export function applyRemoteSections(cfg, { dryRun = false, envKeys } = {}) {
+/** Applica le sezioni remoto: compone lo script e lo esegue via SSH o in locale. */
+export function applyRemoteSections(cfg, { dryRun = false, envKeys, applyMode } = {}) {
+  const mode = applyMode || cfg.applyMode || "ssh"
   const state = { ...serverState(cfg), envKeys: envKeys || cfg.envKeys || {} }
   const script = buildRemoteScript(state)
   const remoteActive = [...state.sections].filter((id) => getSection(id)?.kind === "remote")
   if (!remoteActive.length) return { applied: false, script }
 
+  if (mode === "local") {
+    runScriptLocal(script)
+    return { applied: true, script }
+  }
+
   const ok = verifyConnection(cfg.entry || cfg)
   if (!ok) {
     // NB: non stampiamo lo script: con le API key dentro sarebbe un leak a video.
-    console.log(c.yellow(`  server non raggiungibile: script pronto (${script.length} byte). Esegui di nuovo \`oc-setup\` o \`oc-setup generate\` quando torna.`))
-    console.log(c.dim(`  sezioni remoto da applicare: ${remoteActive.join(", ")}`))
+    console.log(c.yellow(ui(
+      `  server non raggiungibile: script pronto (${script.length} byte). Esegui di nuovo \`oc-setup\` o \`oc-setup generate\` quando torna.`,
+      `  server unreachable: script ready (${script.length} bytes). Re-run \`oc-setup\` or \`oc-setup generate\` once it's back.`,
+    )))
+    console.log(c.dim(ui(
+      `  sezioni remoto da applicare: ${remoteActive.join(", ")}`,
+      `  remote sections to apply: ${remoteActive.join(", ")}`,
+    )))
     return { applied: false, script }
   }
   runRemote(cfg.entry || cfg, script)

@@ -36,7 +36,8 @@
     "url": "git+https://github.com/Rhaegal222/opencode-wyvern.git"
   },
   "scripts": {
-    "test": "node bin/oc-setup.js --help"
+    "test": "node bin/oc-setup.js --help",
+    "prepack": "node scripts/check-secrets.mjs"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.0"

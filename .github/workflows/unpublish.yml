@@ -1,0 +1,37 @@
+name: unpublish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versione da rimuovere da npm (es. 0.2.0)'
+        required: true
+      force:
+        description: "--force (solo se è l'unica versione rimasta / latest)"
+        type: boolean
+        default: false
+
+jobs:
+  unpublish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Unpublish da npm
+        run: |
+          V="${{ github.event.inputs.version }}"
+          if [[ ! "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Versione non valida: $V (atteso x.y.z)"
+            exit 1
+          fi
+          CMD=(npm unpublish "opencode-wyvern@$V")
+          if [[ "${{ github.event.inputs.force }}" == "true" ]]; then
+            CMD+=(--force)
+          fi
+          "${CMD[@]}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

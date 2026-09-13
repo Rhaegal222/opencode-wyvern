@@ -9,6 +9,22 @@ $env:OC_DIR     = '__OC_DIR__'                      # cartella remota di default
 
 $global:OC_OPENCODE = $null                # cache path, si azzera a ogni reload
 
+function Sync-OcEnv {
+    # riseleziona OC_* dal config (fonte di verità), così anche in un
+    # ambiente con variabili stale i comandi usano server/dir corretti.
+    $cfg = Join-Path $env:USERPROFILE ".config\opencode-wyvern\config.json"
+    if (-not (Test-Path $cfg)) { return }
+    try {
+        $j = Get-Content $cfg -Raw | ConvertFrom-Json
+        if ($j.entry.host)   { $env:OC_HOST   = [string]$j.entry.host }
+        if ($j.entry.user)   { $env:OC_USER   = [string]$j.entry.user }
+        if ($j.entry.server) { $env:OC_SERVER = [string]$j.entry.server }
+        if ($j.entry.dir)    { $env:OC_DIR    = [string]$j.entry.dir }
+    } catch { }
+}
+
+Sync-OcEnv
+
 function Get-OcPath {
     if (-not $global:OC_OPENCODE) {
         $remotePath = "(command -v opencode || ls -t ~/.nvm/versions/node/*/bin/opencode 2>/dev/null | head -n1)"
@@ -20,6 +36,7 @@ function Get-OcPath {
 }
 
 function oc-connect {
+    Sync-OcEnv
     $key = "$env:USERPROFILE\.ssh\id_ed25519"
     $pub = "$env:USERPROFILE\.ssh\id_ed25519.pub"
 
@@ -42,11 +59,14 @@ function oc-connect {
 }
 
 function oc {
+    Sync-OcEnv
+    $null = @(Get-OcAllSessions)
     $oc = Get-OcPath
     ssh -t $env:OC_SERVER "cd $env:OC_DIR && $oc"
 }
 
 function oc-ssh {
+    Sync-OcEnv
     ssh $env:OC_SERVER
 }
 
@@ -154,6 +174,7 @@ function Get-OcRecentSessions {
 }
 
 function oc-sessions {
+    Sync-OcEnv
     $sessions = Get-OcRecentSessions
     if (-not $sessions) {
         Write-Host "Nessuna sessione nelle ultime 24 ore (o SSH a chiave non configurato - esegui oc-connect)." -ForegroundColor Yellow
@@ -192,6 +213,7 @@ function oc-find {
         [string]$Search = '',
         [int]$Limit = 30
     )
+    Sync-OcEnv
     $all = Get-OcAllSessions
     if (-not $all) {
         Write-Host "Nessuna sessione trovata (o SSH a chiave non configurato)." -ForegroundColor Yellow
@@ -234,6 +256,7 @@ function oc-delete {
     param(
         [string]$Search = ''
     )
+    Sync-OcEnv
     $all = Get-OcAllSessions
     if (-not $all) {
         Write-Host "Nessuna sessione trovata." -ForegroundColor Yellow
@@ -280,6 +303,8 @@ function oc-go {
         [string]$Dir = "~",
         [switch]$NoRecap
     )
+    Sync-OcEnv
+    $null = @(Get-OcAllSessions)
     $oc = Get-OcPath
     if ($Dir -eq '~' -or [string]::IsNullOrEmpty($Dir)) {
         $remoteCmd = "cd ~ && $oc -s $Id"
@@ -298,6 +323,7 @@ function Show-OcRecap {
         [int]$LastExit = -1,
         [datetime]$ErrTime = (Get-Date)
     )
+    Sync-OcEnv
     Write-Host ""
     Write-Host ("{0}" -f ('=' * 56)) -ForegroundColor DarkCyan
     Write-Host "Connessione terminata. Riepilogo per riprendere:" -ForegroundColor Cyan
@@ -411,6 +437,7 @@ function Get-OcTerminal {
 
 function Invoke-OcWarpResume {
     param([Parameter(Mandatory)]$Sessions)
+    Sync-OcEnv
     $dir = Get-WarpConfigDir
     if (-not $dir) { return $false }
     $oc = Get-OcPath
@@ -460,6 +487,7 @@ function oc-resume {
         [switch]$Warp,
         [switch]$AllTabs
     )
+    Sync-OcEnv
     $sessions = @(Get-OcRecentSessions)
 
     if ($sessions.Count -eq 0) {

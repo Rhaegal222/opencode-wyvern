@@ -3,7 +3,31 @@
 export OC_SERVER='__OC_SERVER__'
 export OC_DIR='__OC_DIR__'
 
+oc-sync-env() {
+    local cfg="${XDG_CONFIG_HOME:-$HOME/.config}/opencode-wyvern/config.json"
+    [ -f "$cfg" ] || return 0
+    local out k v
+    if command -v node >/dev/null 2>&1; then
+        out="$(node -e 'const c=require(process.argv[1]).entry||{};for(const k of ["host","user","server","dir"]){if(c[k]!=null)console.log(k+"="+c[k])}' "$cfg" 2>/dev/null)" || return 0
+    elif command -v python3 >/dev/null 2>&1; then
+        out="$(python3 -c 'import json,sys;e=json.load(open(sys.argv[1]))["entry"];[print(k+"="+str(e[k])) for k in ("host","user","server","dir") if e.get(k)]' "$cfg" 2>/dev/null)" || return 0
+    else
+        return 0
+    fi
+    while IFS='=' read -r k v; do
+        [ -n "$k" ] || continue
+        case "$k" in
+            host)   export OC_HOST="$v" ;;
+            user)   export OC_USER="$v" ;;
+            server) export OC_SERVER="$v" ;;
+            dir)    export OC_DIR="$v" ;;
+        esac
+    done <<< "$out"
+}
+oc-sync-env
+
 oc-path() {
+    oc-sync-env
     if [ -z "$OC_OPENCODE" ]; then
         OC_OPENCODE=$(ssh -o BatchMode=yes "$OC_SERVER" "(command -v opencode || ls -t \$HOME/.nvm/versions/node/*/bin/opencode 2>/dev/null | head -n1)" 2>/dev/null | head -n1)
         [ -n "$OC_OPENCODE" ] || OC_OPENCODE='opencode'
@@ -12,6 +36,7 @@ oc-path() {
 }
 
 oc-connect() {
+    oc-sync-env
     local key="$HOME/.ssh/id_ed25519"
     local pub="$key.pub"
     if [ ! -f "$key" ]; then
@@ -29,11 +54,14 @@ oc-connect() {
 }
 
 oc() {
+    oc-sync-env
     local oc; oc="$(oc-path)"
+    oc-sessions-all >/dev/null 2>&1
     ssh -t "$OC_SERVER" "cd $OC_DIR && $oc"
 }
 
 oc-ssh() {
+    oc-sync-env
     ssh "$OC_SERVER"
 }
 
@@ -58,6 +86,7 @@ oc-cache-load() {
 }
 
 oc-sessions-all() {
+    oc-sync-env
     local oc b64 out
     py='import json,sys
 raw=sys.stdin.read()
@@ -171,9 +200,11 @@ oc-delete() {
 }
 
 oc-go() {
+    oc-sync-env
     local id="$1" dir="${2:-~}" norecap=0 oc exit_code
     [ "$3" = "--no-recap" ] && norecap=1
     oc="$(oc-path)"
+    oc-sessions-all >/dev/null 2>&1
     mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/opencode-wyvern"
     printf '%s\t%s\n' "$id" "${dir:-~}" > "${XDG_CACHE_HOME:-$HOME/.cache}/opencode-wyvern/last.tsv"
     if [ "$dir" = "~" ] || [ -z "$dir" ]; then
@@ -187,6 +218,7 @@ oc-go() {
 }
 
 oc-recap() {
+    oc-sync-env
     local last_exit="${1:--1}" err_time live cached list bar back m i id title dir updated last choice ss cid ctitle cdir
     err_time="$(date '+%Y-%m-%d %H:%M:%S')"
     bar="=============================================="
@@ -274,6 +306,7 @@ oc-open-tab() {
 }
 
 oc-resume() {
+    oc-sync-env
     local list rest first_term=1 mode="$1" term
     if [ "$mode" = "--all-tabs" ] || [ "$mode" = "-a" ]; then
         first_term=0

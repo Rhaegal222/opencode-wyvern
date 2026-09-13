@@ -48,7 +48,7 @@ export const SECTIONS = [
     id: "providers",
     kind: "remote",
     group: "server",
-    label: "Server — provider (Copilot, Gemini, Zenith, Anthropic, OpenAI, OmniRoute)",
+    label: "Server — provider (Copilot, Gemini, Zen, Anthropic, OpenAI, OmniRoute)",
     desc: "SDK + blocco provider in opencode.json; API key in .env sul server (chmod 600).",
   },
   {

@@ -128,19 +128,23 @@ export async function select(question, choices, { defaultValue = 0 } = {}) {
   })) - 1]
 }
 
-/** Selezione multipla: numeri separati da virgola/spazio (es. "1,3,5"). */
+/** Selezione multipla: numeri separati da virgola/spazio (es. "1,3,5"); invio = nessuna. */
 export async function checkbox(question, choices, { defaultIndices = [] } = {}) {
-  console.log(`\n${c.cyan("?")} ${question} ${c.dim("(numeri separati da virgola/spazio)")}`)
+  console.log(`\n${c.cyan("?")} ${question} ${c.dim("(invio = nessuno; es. 1,3,5)")}`)
   choices.forEach((choice, i) => {
     const sel = defaultIndices.includes(i) ? "•" : " "
     console.log(`  ${sel} ${i + 1}. ${choice.label}`)
   })
   const answer = await ask("Seleziona (es. 1,3,5)", {
-    defaultValue: defaultIndices.length ? defaultIndices.map((n) => n + 1).join(",") : "",
-    validate: (v) =>
-      v.split(/[\s,]+/).filter(Boolean).every((n) => /^\d+$/.test(n) && Number(n) >= 1 && Number(n) <= choices.length),
+    validate: (v) => {
+      const nums = v.split(/[\s,]+/).filter(Boolean)
+      if (!nums.length) return true // invio = nessuno (salta)
+      return nums.every((n) => /^\d+$/.test(n) && Number(n) >= 1 && Number(n) <= choices.length)
+    },
   })
-  return [...new Set(answer.split(/[\s,]+/).filter(Boolean).map((n) => Number(n) - 1))].map((i) => choices[i])
+  const nums = answer.split(/[\s,]+/).filter(Boolean)
+  if (!nums.length) return []
+  return [...new Set(nums.map((n) => Number(n) - 1))].map((i) => choices[i])
 }
 
 /** Input mascherato per segreti (API key ecc.). */

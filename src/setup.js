@@ -105,7 +105,7 @@ export async function run(argv = []) {
   const active = await checkbox("Quali sezioni vuoi attivare ora?", SECTIONS.map((s) => ({
     label: s.label,
     value: s.id,
-  })), { defaultIndices: SECTIONS.map((_, i) => i) })
+  })))
   const activeIds = new Set(active.map((s) => s.value))
 
   if (!activeIds.size) {
@@ -138,8 +138,7 @@ export async function run(argv = []) {
 
   let plugins = cfg.plugins || []
   if (activeIds.has("plugins")) {
-    const defaults = PLUGIN_CHOICES.map((_, i) => i)
-    const sel = await checkbox("Plugin opencode da includere nel config server?", PLUGIN_CHOICES.map((p) => ({ label: p.label, value: p.value })), { defaultIndices: defaults })
+    const sel = await checkbox("Plugin opencode da includere nel config server?", PLUGIN_CHOICES.map((p) => ({ label: p.label, value: p.value })))
     plugins = sel.map((s) => s.value)
   }
 

@@ -52,6 +52,23 @@ oc-connect() {
     fi
 }
 
+oc-update() {
+    if ! command -v npm >/dev/null 2>&1; then
+        echo -e "${RED}[FAIL] npm non trovato nel PATH.${NC}"
+        return 127
+    fi
+    echo -e "${CYAN}[..] Aggiorno OpenCode Wyvern...${NC}"
+    npm install -g opencode-wyvern@latest || return $?
+    hash -r
+    if ! command -v oc-setup >/dev/null 2>&1; then
+        echo -e "${RED}[FAIL] oc-setup non trovato dopo l'aggiornamento.${NC}"
+        return 127
+    fi
+    oc-setup generate || return $?
+    source "$HOME/.bashrc"
+    echo -e "${GREEN}[OK] OpenCode Wyvern aggiornato e profilo Bash ricaricato.${NC}"
+}
+
 oc() {
     oc-sync-env
     local oc; oc="$(oc-path)"
@@ -454,6 +471,7 @@ oc-help() {
     echo -e "${CYAN}============================${NC}"
     echo ""
     printf '  %-24s %s\n' "oc-connect" "Setup SSH key + autorizzazione server"
+    printf '  %-24s %s\n' "oc-update" "Aggiorna il pacchetto e riapplica i comandi oc-*"
     printf '  %-24s %s\n' "oc" "Nuova sessione opencode in $OC_DIR"
     printf '  %-24s %s\n' "oc-ssh" "Apri sessione SSH interattiva"
     printf '  %-24s %s\n' "oc-sessions" "Lista sessioni opencode (ultime 24h)"

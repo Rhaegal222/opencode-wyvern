@@ -55,6 +55,21 @@ function oc-connect {
     }
 }
 
+function oc-update {
+    $npm = Get-Command npm -ErrorAction SilentlyContinue
+    if (-not $npm) {
+        Write-Host "npm non trovato nel PATH." -ForegroundColor Red
+        return
+    }
+    Write-Host "[..] Aggiorno OpenCode Wyvern..." -ForegroundColor Cyan
+    & $npm.Source install -g opencode-wyvern@latest
+    if ($LASTEXITCODE -ne 0) { return }
+    & oc-setup generate
+    if ($LASTEXITCODE -ne 0) { return }
+    . $PROFILE
+    Write-Host "OpenCode Wyvern aggiornato e profilo PowerShell ricaricato." -ForegroundColor Green
+}
+
 function oc {
     Sync-OcEnv
     $null = @(Get-OcAllSessions)
@@ -191,6 +206,7 @@ function oc-help {
     Write-Host "============================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host ("  {0,-24} {1}" -f "oc-connect", "Setup SSH key + autorizzazione server")
+    Write-Host ("  {0,-24} {1}" -f "oc-update", "Aggiorna il pacchetto e riapplica i comandi oc-*")
     Write-Host ("  {0,-24} {1}" -f "oc", "Nuova sessione opencode in $env:OC_DIR")
     Write-Host ("  {0,-24} {1}" -f "oc-ssh", "Apri sessione SSH interattiva")
     Write-Host ("  {0,-24} {1}" -f "oc-sessions", "Lista sessioni opencode (ultime 24h)")

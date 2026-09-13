@@ -8,8 +8,42 @@ API key vengono **richiesti/creati durante il setup**, mai salvati in locale
 
 ## Installazione
 
+Prerequisiti: **Node.js 18+** e **npm** (su Ubuntu/WSL si consiglia `nvm`).
+
 ```bash
 npm install -g opencode-wyvern
+```
+
+> Attenzione: `npm rm -g opencode-wyvern` **disinstalla**. Per installare
+> si usa solo `npm install -g opencode-wyvern`.
+
+Il comando si chiama **`oc-setup`** (non `oc-help`, non `oc`). Verifica:
+
+```bash
+oc-setup --version    # → 0.2.1
+```
+
+Se compare `oc-setup: command not found` subito dopo l'installazione, il
+binario è appena fuori dal PATH della shell corrente. Ricaricalo:
+
+```bash
+hash -r            # svuota la cache dei comandi (immediato) e riprova
+source ~/.bashrc   # oppure ricarica il profilo
+# oppure: chiudi e riapri il terminale WSL
+```
+
+Con **nvm** (Linux/WSL) il binario finisce in
+`~/.nvm/versions/node/<versione>/bin`; quell'alias deve essere attivo
+(`nvm use default`). Controlla che il file ci sia:
+
+```bash
+nvm use default
+ls -l ~/.nvm/versions/node/$(nvm current)/bin/oc-setup
+```
+
+Poi avvia la procedura guidata:
+
+```bash
 oc-setup
 ```
 

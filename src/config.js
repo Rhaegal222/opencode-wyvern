@@ -65,11 +65,11 @@ function figmaInvolved(cfg) {
 function printFigmaGuide() {
   const it = `Aggiornato al nuovo Figma Desktop MCP (rimosso il vecchio setup con token).
   • Apri Figma desktop con il file in Dev Mode (Shift D): l'agente legge il file da 127.0.0.1:3845.
-  • Se opencode gira su un server remoto, inoltra la porta: ssh -L 3845:127.0.0.1:3845 <server>
+  • Se opencode gira su un server remoto e il Figma desktop gira sul client, inoltra la porta dal client: ssh -R 3845:127.0.0.1:3845 <server>
   • Nessun token: le credenziali Figma (FIGMA_API_KEY) e l'hack PATH sono stati rimossi dalla config del server.`
   const en = `Upgraded to the new Figma Desktop MCP (old token-based setup removed).
   • Open Figma desktop with the file in Dev Mode (Shift D): the agent reads the file from 127.0.0.1:3845.
-  • If opencode runs on a remote server, forward the port: ssh -L 3845:127.0.0.1:3845 <server>
+  • If opencode runs on a remote server and the Figma desktop runs on the client, forward the port from the client: ssh -R 3845:127.0.0.1:3845 <server>
   • No token needed: Figma credentials (FIGMA_API_KEY) and the PATH hack have been removed from the server config.`
   console.log(`[oc-wyvern] ${ui(it, en)}`)
 }

@@ -180,7 +180,7 @@ export function buildMcpBlock(mcpList = []) {
     const { label, ...serv } = p
     servers[id] = serv
   }
-  return Object.keys(servers).length ? { servers } : {}
+  return servers
 }
 
 /**
@@ -434,14 +434,24 @@ if (!fs.existsSync(file)) { console.log("REPAIR_SKIP: opencode.json assente"); p
 let data;
 try { data = JSON.parse(fs.readFileSync(file, "utf8")); }
 catch (e) { console.log("REPAIR_SKIP: opencode.json non valido (" + e.message + ")"); process.exit(0); }
-const servers = (data.mcp && data.mcp.servers) ? data.mcp.servers : {};
-if (servers["figma-developer"]) {
-  delete servers["figma-developer"];
-  console.log("REPAIR: rimosso figma-developer");
+const mcp = data.mcp || (data.mcp = {});
+const DESKTOP = { type: "remote", url: "http://127.0.0.1:3845/mcp", oauth: false, enabled: true };
+const nested = (mcp.servers && typeof mcp.servers === "object" && !Array.isArray(mcp.servers)) ? mcp.servers : null;
+const removeKey = (obj, k) => { if (obj && Object.prototype.hasOwnProperty.call(obj, k)) { delete obj[k]; return true; } return false; };
+let changed = false;
+if (removeKey(mcp, "figma-developer")) { console.log("REPAIR: rimosso mcp.figma-developer"); changed = true; }
+// Figma va messo direttamente sotto mcp, nello stesso formato dei server esistenti
+// (es. cloudflare). Se c'era la forma annidata "mcp.servers", la si appiattisce.
+if (nested) {
+  for (const k of Object.keys(nested)) {
+    if (k !== "figma-developer" && !Object.prototype.hasOwnProperty.call(mcp, k)) { mcp[k] = nested[k]; changed = true; }
+  }
+  delete mcp.servers;
+  console.log("REPAIR: appiattito mcp.servers in mcp");
+  changed = true;
 }
-if (servers["figma"] && servers["figma"].type !== "remote") {
-  servers["figma"] = { type: "remote", url: "http://127.0.0.1:3845/mcp", oauth: false, enabled: true };
-  console.log("REPAIR: figma portato al Desktop MCP (remote)");
+if (!mcp.figma || JSON.stringify(mcp.figma) !== JSON.stringify(DESKTOP)) {
+  mcp.figma = DESKTOP; console.log("REPAIR: figma allineato al Desktop MCP"); changed = true;
 }
 const cleanEnv = (envFile) => {
   if (!fs.existsSync(envFile)) return;

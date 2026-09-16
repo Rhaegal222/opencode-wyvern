@@ -484,8 +484,8 @@ function printMcpHints(cfg, localOnly = false) {
   const remoteHost = cfg.entry?.host && !/^(localhost|127\.0\.0\.1|0\.0\.0\.0)$/i.test(cfg.entry.host)
   if (mcpActive && hasFigma && remoteHost) {
     console.log(c.dim(ui(
-      `  figma : server remoto → inoltra la porta del Figma desktop con \`ssh -L 3845:127.0.0.1:3845 ${cfg.entry.host}\``,
-      `  figma : remote server → forward the Figma desktop port with \`ssh -L 3845:127.0.0.1:3845 ${cfg.entry.host}\``,
+      `  figma : server remoto → il Figma desktop gira sul client: apri un terminale sul client e inoltra la porta con \`ssh -R 3845:127.0.0.1:3845 ${cfg.entry.host}\``,
+      `  figma : remote server → Figma desktop runs on the client: open a terminal on the client and forward the port with \`ssh -R 3845:127.0.0.1:3845 ${cfg.entry.host}\``,
     )))
   }
 }

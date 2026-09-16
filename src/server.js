@@ -456,9 +456,9 @@ console.log("REPAIR_OK");
     "set -e",
     'CFG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"',
     "mkdir -p \"$CFG_DIR\"",
-    `printf '%s' ${esc(js)} | base64 -d > "$CFG_DIR/.oc-repair.mjs"`,
-    "node \"$CFG_DIR/.oc-repair.mjs\"",
-    "rm -f \"$CFG_DIR/.oc-repair.mjs\"",
+    `printf '%s' ${esc(js)} | base64 -d > "$CFG_DIR/.oc-repair.cjs"`,
+    "node \"$CFG_DIR/.oc-repair.cjs\"",
+    "rm -f \"$CFG_DIR/.oc-repair.cjs\"",
     "echo REPAIR_DONE",
   ]
   return lines.join("\n")

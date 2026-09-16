@@ -1,7 +1,7 @@
 import { c } from "./prompts.js"
 import { ui } from "./i18n.js"
 import { renderClient, installClient } from "./client.js"
-import { buildRemoteScript, runRemote, runScriptLocal, verifyConnection, chooseDefaultModels, MCP_PRESETS } from "./server.js"
+import { buildRemoteScript, runRemote, runScriptLocal, verifyConnection, chooseDefaultModels } from "./server.js"
 
 /**
  * Catalogo delle sezioni del setup. Ogni sezione è un modulo indipendente:
@@ -64,16 +64,6 @@ export const SECTIONS = [
     ),
   },
   {
-    id: "mcp",
-    kind: "remote",
-    group: "server",
-    label: ui("Server — MCP (Figma Desktop, Dev Mode)", "Server — MCP (Figma Desktop, Dev Mode)"),
-    desc: ui(
-      "Blocco mcp in opencode.json per il Figma Desktop MCP locale (127.0.0.1:3845, Dev Mode); nessun token richiesto.",
-      "mcp block in opencode.json for the local Figma Desktop MCP (127.0.0.1:3845, Dev Mode); no token required.",
-    ),
-  },
-  {
     id: "providers",
     kind: "remote",
     group: "server",
@@ -124,7 +114,6 @@ export const SECTION_CONFIGS = {
   "client-bash": ["alias", "dir"],
   server: [...SSH_CONN, "tuning"],
   commands: [...SSH_CONN, "customCommands"],
-  mcp: [...SSH_CONN, "mcpList"],
   providers: [...SSH_CONN, "providersList", "omnirouteUrl", "apiKeys", "tuning"],
   plugins: [...SSH_CONN, "pluginsList", "tuning"],
   "claude-mem": [...SSH_CONN, "tuning"],
@@ -152,10 +141,6 @@ export const COMMAND_CHOICES = [
   { label: "/tests — " + ui("genera casi di test", "generates test cases"), value: "tests" },
   { label: "/commit — " + ui("messaggio commit convenzionale", "conventional commit message"), value: "commit" },
   { label: "/explain — " + ui("spiega un blocco di codice", "explains a code block"), value: "explain" },
-]
-
-export const MCP_CHOICES = [
-  { label: "Figma Desktop MCP — " + ui("endpoint locale, Dev Mode", "local endpoint, Dev Mode"), value: "figma" },
 ]
 
 export function getSection(id) {
@@ -195,7 +180,6 @@ export function serverState(cfg) {
     omnirouteUrl,
     baseUrls: cfg.baseUrls || {},
     customCommands: cfg.customCommands || [],
-    mcpList: (cfg.mcpList || []).filter((id) => MCP_PRESETS[id]),
     defaultModel,
     smallModel,
     tuning: cfg.tuning,
@@ -207,7 +191,7 @@ export function serverState(cfg) {
 export function renderSection(id, cfg) {
   if (id === "client-pwsh") return { content: renderClient("pwsh", cfg.entry || cfg) }
   if (id === "client-bash") return { content: renderClient("bash", cfg.entry || cfg) }
-  const remoteIds = new Set(["server", "commands", "providers", "plugins", "claude-mem", "mcp"])
+  const remoteIds = new Set(["server", "commands", "providers", "plugins", "claude-mem"])
   if (remoteIds.has(id)) {
     const state = serverState(cfg)
     const only = new Set([id])

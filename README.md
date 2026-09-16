@@ -99,7 +99,6 @@ accodata al valore precedente.
 | `client-bash` | locale | stesso blocco in `~/.bashrc` |
 | `server`      | remoto | controlla node/npm, installa opencode se manca, crea `~/.config/opencode` + `AGENTS.md` |
 | `commands`    | remoto | comandi custom in `command/*.md` (`/baseline-ui`, `/omniroute-restart`, `/review`, ...) |
-| `mcp`         | remoto | blocco `mcp` in `opencode.json` (Figma Desktop MCP, endpoint locale Dev Mode) |
 | `providers`   | remoto | provider opencode in `opencode.json`; chiavi in `.env` |
 | `plugins`     | remoto | plugin npm installati nella dir config e listati in `opencode.json` |
 | `claude-mem`  | remoto | memoria: wrapper `plugins/claude-mem-plugin.js` |
@@ -125,16 +124,6 @@ La sezione `commands` installa agent in `~/.config/opencode/command/*.md`:
 `/baseline-ui` (baseline interfacce), `/omniroute-restart` (riavvia il container
 Docker OmniRoute e attende che sia `healthy`), `/review`, `/refactor`, `/tests`,
 `/commit`, `/explain`.
-
-## MCP
-
-La sezione `mcp` configura il **Figma Desktop MCP** ufficiale: endpoint locale
-`http://127.0.0.1:3845/mcp` del Figma desktop app in Dev Mode (Dev/Full seat).
-Nessun token richiesto: l'autenticazione è locale, senza allowlist Figma.
-Funziona quando opencode gira sulla stessa macchina del Figma desktop.
-Nota: il server remoto ufficiale Figma (`https://mcp.figma.com/mcp`) oggi
-risponde `403` con opencode perché Figma non lo ha ancora aggiunto al suo
-catalogo client.
 
 ## Client
 

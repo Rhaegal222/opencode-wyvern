@@ -154,40 +154,10 @@ function providerBlock(id, models, baseUrls = {}, omnirouteUrl = "") {
 }
 
 /**
- * Preset MCP pronti da abilitare nel config server.
- *
- * Figma: Desktop MCP ufficiale (endpoint locale del Figma desktop app, Dev Mode).
- * Nessun token: l'autenticazione non serve perché il server gira su 127.0.0.1
- * dove si trova il Figma desktop aperto. L'MCP remoto ufficiale (mcp.figma.com)
- * oggi risponde 403 con opencode (allowlist client Figma non ancora aggiornata).
- */
-export const MCP_PRESETS = {
-  figma: {
-    label: "Figma Desktop MCP — endpoint locale (Dev Mode)",
-    type: "remote",
-    url: "http://127.0.0.1:3845/mcp",
-    oauth: false,
-    enabled: true,
-  },
-}
-
-/** Raggruppa i preset MCP scelti nel blocco `mcp` di opencode.json. */
-export function buildMcpBlock(mcpList = []) {
-  const servers = {}
-  for (const id of mcpList) {
-    const p = MCP_PRESETS[id]
-    if (!p) continue
-    const { label, ...serv } = p
-    servers[id] = serv
-  }
-  return servers
-}
-
-/**
  * Costruisce opencode.json dal server in modo programmatico (solo sezioni attive).
  * Nessun segreto nel JSON: le chiavi restano in .env (dichiarate con "env": [...]).
  */
-export function buildServerConfig({ providers = new Set(), models = {}, baseUrls = {}, omnirouteUrl = "", defaultModel, smallModel, tuning = false, plugins = [], claudeMem = false, mcpList = [] } = {}) {
+export function buildServerConfig({ providers = new Set(), models = {}, baseUrls = {}, omnirouteUrl = "", defaultModel, smallModel, tuning = false, plugins = [], claudeMem = false } = {}) {
   const provider = {}
   for (const id of PROVIDER_ORDER) {
     if (providers.has(id)) {
@@ -204,8 +174,6 @@ export function buildServerConfig({ providers = new Set(), models = {}, baseUrls
     provider,
     plugin,
   }
-  const mcp = buildMcpBlock(mcpList || [])
-  if (Object.keys(mcp).length) out.mcp = mcp
   if (defaultModel) out.model = defaultModel
   if (smallModel) out.small_model = smallModel
   if (tuning) {
@@ -328,7 +296,7 @@ export function verifyConnection(cfg) {
  * I segreti (API key) finiscono solo in .env (chmod 600) quando la sezione providers
  * è attiva e l'utente ne ha fornite.
  */
-export function buildRemoteScript({ sections = new Set(), providers = new Set(), models = {}, baseUrls = {}, omnirouteUrl = "", defaultModel, smallModel, tuning = false, plugins = [], claudeMem = false, envKeys = {}, customCommands = [], mcpList = [] } = {}) {
+export function buildRemoteScript({ sections = new Set(), providers = new Set(), models = {}, baseUrls = {}, omnirouteUrl = "", defaultModel, smallModel, tuning = false, plugins = [], claudeMem = false, envKeys = {}, customCommands = [] } = {}) {
   const esc = (s) => Buffer.from(s, "utf8").toString("base64")
   const act = (id) => sections.has(id)
 
@@ -367,18 +335,6 @@ export function buildRemoteScript({ sections = new Set(), providers = new Set(),
     }
   }
 
-  if (act("mcp")) {
-    const mcpIds = (mcpList || []).filter((id) => MCP_PRESETS[id])
-    if (mcpIds.length) {
-      lines.push(`log "MCP: ${mcpIds.join(", ")}"`)
-      lines.push(
-        "grep -vE '^((FIGMA_API_KEY|PATH)=)' \"$CFG_DIR/.env\" > \"$CFG_DIR/.env.tmp\" 2>/dev/null || true",
-        'mv "$CFG_DIR/.env.tmp" "$CFG_DIR/.env" 2>/dev/null || true',
-        'chmod 600 "$CFG_DIR/.env" 2>/dev/null || true',
-      )
-    }
-  }
-
   if (claudeMem) {
     lines.push(
       "log 'claude-mem: installo opcode-mem + wrapper plugins/claude-mem-plugin.js'",
@@ -393,9 +349,9 @@ export function buildRemoteScript({ sections = new Set(), providers = new Set(),
   const pluginPkgs = [...new Set((plugins || []).map((p) => PLUGIN_PKG[p]).filter(Boolean))]
   if (pluginPkgs.length) lines.push(`npm install ${pluginPkgs.join(" ")} >/dev/null 2>&1 || true`)
 
-  const hasServer = act("server") || act("commands") || act("plugins") || claudeMem || providers.size > 0 || (mcpList && mcpList.filter((id) => MCP_PRESETS[id]).length > 0)
+  const hasServer = act("server") || act("commands") || act("plugins") || claudeMem || providers.size > 0
   if (hasServer) {
-    const json = buildServerConfig({ providers, models, baseUrls, omnirouteUrl, defaultModel, smallModel, tuning, plugins, claudeMem, mcpList })
+    const json = buildServerConfig({ providers, models, baseUrls, omnirouteUrl, defaultModel, smallModel, tuning, plugins, claudeMem })
     lines.push(`echo '${esc(JSON.stringify(json, null, 2))}' | base64 -d > "$CFG_DIR/opencode.json"`)
   }
 
@@ -413,64 +369,6 @@ export function buildRemoteScript({ sections = new Set(), providers = new Set(),
 
   lines.push('log "config opencode scritta in: $CFG_DIR"')
   lines.push("[ -n \"$OPENCODE_BIN\" ] && \"$OPENCODE_BIN\" --version && echo REMOTE_OK || echo REMOTE_NO_OPENCODE")
-  return lines.join("\n")
-}
-
-/**
- * Ripara chirurgicamente l'opencode.json remoto: rimuove il vecchio MCP
- * `figma-developer` (npx + token) e porta `figma` al Figma Desktop MCP
- * (remote, 127.0.0.1:3845). Non tocca gli altri server MCP (cloudflare,
- * ecc.) e non riscrive l'intero file. Eseguito via SSH da `oc-setup repair`
- * / `generate`, oppure in locale con `applyMode local`.
- */
-export function buildMcpRepairScript() {
-  const esc = (s) => Buffer.from(s, "utf8").toString("base64")
-  const js = `
-const fs = require("fs");
-const path = require("path");
-const cfgDir = process.env.OPENCODE_CONFIG_DIR || path.join(process.env.HOME || ".", ".config", "opencode");
-const file = path.join(cfgDir, "opencode.json");
-if (!fs.existsSync(file)) { console.log("REPAIR_SKIP: opencode.json assente"); process.exit(0); }
-let data;
-try { data = JSON.parse(fs.readFileSync(file, "utf8")); }
-catch (e) { console.log("REPAIR_SKIP: opencode.json non valido (" + e.message + ")"); process.exit(0); }
-const mcp = data.mcp || (data.mcp = {});
-const DESKTOP = { type: "remote", url: "http://127.0.0.1:3845/mcp", oauth: false, enabled: true };
-const nested = (mcp.servers && typeof mcp.servers === "object" && !Array.isArray(mcp.servers)) ? mcp.servers : null;
-const removeKey = (obj, k) => { if (obj && Object.prototype.hasOwnProperty.call(obj, k)) { delete obj[k]; return true; } return false; };
-let changed = false;
-if (removeKey(mcp, "figma-developer")) { console.log("REPAIR: rimosso mcp.figma-developer"); changed = true; }
-// Figma va messo direttamente sotto mcp, nello stesso formato dei server esistenti
-// (es. cloudflare). Se c'era la forma annidata "mcp.servers", la si appiattisce.
-if (nested) {
-  for (const k of Object.keys(nested)) {
-    if (k !== "figma-developer" && !Object.prototype.hasOwnProperty.call(mcp, k)) { mcp[k] = nested[k]; changed = true; }
-  }
-  delete mcp.servers;
-  console.log("REPAIR: appiattito mcp.servers in mcp");
-  changed = true;
-}
-if (!mcp.figma || JSON.stringify(mcp.figma) !== JSON.stringify(DESKTOP)) {
-  mcp.figma = DESKTOP; console.log("REPAIR: figma allineato al Desktop MCP"); changed = true;
-}
-const cleanEnv = (envFile) => {
-  if (!fs.existsSync(envFile)) return;
-  const lines = fs.readFileSync(envFile, "utf8").split(/\\r?\\n/).filter((l) => l && !l.startsWith("FIGMA_API_KEY=") && !l.startsWith("PATH="));
-  fs.writeFileSync(envFile, lines.length ? lines.join("\\n") + "\\n" : "");
-};
-cleanEnv(path.join(cfgDir, ".env"));
-fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\\n");
-console.log("REPAIR_OK");
-`
-  const lines = [
-    "set -e",
-    'CFG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"',
-    "mkdir -p \"$CFG_DIR\"",
-    `printf '%s' ${esc(js)} | base64 -d > "$CFG_DIR/.oc-repair.cjs"`,
-    "node \"$CFG_DIR/.oc-repair.cjs\"",
-    "rm -f \"$CFG_DIR/.oc-repair.cjs\"",
-    "echo REPAIR_DONE",
-  ]
   return lines.join("\n")
 }
 

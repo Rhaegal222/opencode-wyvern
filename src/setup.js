@@ -6,7 +6,6 @@ import {
   SECTIONS,
   PLUGIN_CHOICES,
   COMMAND_CHOICES,
-  MCP_CHOICES,
   getSection,
   defaultSections,
   renderSection,
@@ -23,15 +22,13 @@ import {
   ensureSshConfigAlias,
   installKeyOnServer,
   verifyConnection,
-  MCP_PRESETS,
-  buildMcpRepairScript,
   runRemote,
   runScriptLocal,
 } from "./server.js"
 import { installClient } from "./client.js"
 
 const SAMPLE_ENTRY = { server: "remote-server", host: "server.example.com", user: "you", dir: "~" }
-const REMOTE_SECTIONS = new Set(["server", "commands", "providers", "plugins", "claude-mem", "mcp"])
+const REMOTE_SECTIONS = new Set(["server", "commands", "providers", "plugins", "claude-mem"])
 
 /** Scenari preimpostati: dicono quali sezioni attivare prima di iniziare. */
 const SCENARIOS = [
@@ -39,7 +36,7 @@ const SCENARIOS = [
     value: "client-server",
     label: ui("Client + Server", "Client + Server"),
     desc: ui("SSH, client oc-* e bootstrap completo del server (consigliato).", "SSH, oc-* clients and full server bootstrap (recommended)."),
-    sections: ["ssh", "client-pwsh", "client-bash", "server", "commands", "mcp", "providers", "plugins", "claude-mem"],
+    sections: ["ssh", "client-pwsh", "client-bash", "server", "commands", "providers", "plugins", "claude-mem"],
   },
   {
     value: "client-only",
@@ -51,7 +48,7 @@ const SCENARIOS = [
     value: "server-only",
     label: ui("Solo server", "Server only"),
     desc: ui("Bootstrap e config del server remoto via SSH (nessun profilo client).", "Remote server bootstrap & config over SSH (no local profiles)."),
-    sections: ["server", "commands", "mcp", "providers", "plugins", "claude-mem"],
+    sections: ["server", "commands", "providers", "plugins", "claude-mem"],
   },
   {
     value: "custom",
@@ -180,14 +177,6 @@ async function collectCommandsCfg(prev) {
   return { customCommands: sel.map((s) => s.value) }
 }
 
-/** Server MCP selezionati (token non richiesto: Desktop MCP usa OAuth locale). */
-async function collectMcpCfg(prev) {
-  const prevList = (prev && prev.mcpList) || []
-  const defaultIndices = MCP_CHOICES.map((m, i) => (prevList.includes(m.value) ? i : -1)).filter((i) => i >= 0)
-  const sel = await checkbox(ui("Quali server MCP abilitare nel config server?", "Which MCP servers to enable in the server config?"), MCP_CHOICES.map((m) => ({ label: m.label, value: m.value })), { defaultIndices })
-  return { mcpList: sel.map((s) => s.value) }
-}
-
 export async function run(argv = []) {
   console.log(c.bold(c.cyan("oc-setup — OpenCode Wyvern "))
     + c.dim(ui(
@@ -273,18 +262,13 @@ export async function run(argv = []) {
     customCommands = (await collectCommandsCfg(cfg)).customCommands
   }
 
-  let mcpList = (cfg.mcpList || []).filter((id) => MCP_PRESETS[id])
-  if (activeIds.has("mcp")) {
-    mcpList = (await collectMcpCfg(cfg)).mcpList
-  }
-
   let tuning = cfg.tuning !== false
   if (nc.has("tuning")) {
     tuning = await confirm(ui("Aggiungo al config tool_output + compaction (default robusti)?", "Add tool_output + compaction to the config (robust defaults)?"), cfg.tuning !== false)
   }
 
   const sections = Object.fromEntries(SECTIONS.map((s) => [s.id, activeIds.has(s.id)]))
-  saveConfig({ entry, sections, providers, models, plugins, omnirouteUrl, baseUrls, customCommands, mcpList, tuning, applyMode, configuredAt: new Date().toISOString() })
+  saveConfig({ entry, sections, providers, models, plugins, omnirouteUrl, baseUrls, customCommands, tuning, applyMode, configuredAt: new Date().toISOString() })
 
   section(ui("Applicazione", "Application"))
   const anyClient = activeIds.has("client-pwsh") || activeIds.has("client-bash")
@@ -349,12 +333,10 @@ if (!localOnly) {
         console.log(c.yellow(`  ${ui("attenzione:", "warning:")} ${err.message}`))
       }
     }
-    await repairMcp(saved)
   }
 
   console.log(c.green(`\n${ui("Fatto.", "Done.")}`))
   console.log(`  config    : ${configFilePath()} ${ui("(solo dati non sensibili)", "(non-sensitive data only)")}`)
-  printMcpHints(saved, localOnly)
   if (localClientTargets.length) {
     console.log(ui(
       `  client    : ${localClientTargets.map((t) => t === "client-pwsh" ? "PowerShell" : "bash").join(", ")} → ricarica profilo per attivare i comandi oc-*`,
@@ -381,8 +363,6 @@ export async function cmdStatus() {
     console.log(`  server: provider ${providers.join(", ")}${urls.length ? ` · ${urls.join(" · ")}` : ""}${cfg.tuning ? ui(" · tuning on", " · tuning on") : ""}`)
   }
   if (cfg.customCommands?.length) console.log(`  cmds  : ${cfg.customCommands.map((x) => "/" + x).join(", ")}`)
-  const mcpList = (cfg.mcpList || []).filter((id) => MCP_PRESETS[id])
-  if (mcpList.length) console.log(`  mcp   : ${mcpList.join(", ")}`)
   console.log("")
   console.log(ui("  moduli:", "  modules:"))
   for (const s of SECTIONS) {
@@ -426,8 +406,6 @@ export async function cmdGenerate() {
   }
   const remote = [...act].filter((id) => getSection(id)?.kind === "remote").length
   if (remote) applyRemoteSections(cfg)
-  await repairMcp(cfg)
-  printMcpHints(cfg)
 }
 
 export async function cmdPrint(id) {
@@ -436,58 +414,6 @@ export async function cmdPrint(id) {
   const rendered = renderSection(id, cfg.entry ? cfg : SAMPLE_ENTRY)
   if (!rendered) return fail(ui("sezione non stampabile:", "section not printable:") + ` ${id}`)
   console.log(rendered.content)
-}
-
-export async function cmdRepair() {
-  const cfg = loadConfig()
-  await repairMcp(cfg)
-}
-
-async function repairMcpLocal() {
-  try {
-    runScriptLocal(buildMcpRepairScript(), { label: ui(
-      "[..] Riparazione chirurgica opencode.json in locale...",
-      "[..] Repairing opencode.json locally (surgical)...",
-    )})
-  } catch (err) {
-    console.error(c.red(`  ${ui("attenzione:", "warning:")} ${err.message}`))
-  }
-}
-
-async function repairMcp(cfg, { applyMode } = {}) {
-  const entry = cfg.entry
-  const mode = applyMode || cfg.applyMode || "ssh"
-  if (mode === "local" || !entry) {
-    return repairMcpLocal()
-  }
-  const script = buildMcpRepairScript()
-  const ok = verifyConnection(entry)
-  if (!ok) {
-    console.log(c.yellow(ui(
-      `  server non raggiungibile: repair MCP rimandato — esegui \`oc-setup repair\` quando torna.`,
-      `  server unreachable: MCP repair deferred — run \`oc-setup repair\` once it's back.`,
-    )))
-    return
-  }
-  runRemote(entry, script, { label: ui(
-    "[..] Riparazione chirurgica opencode.json sul server...",
-    "[..] Repairing opencode.json on the server (surgical)...",
-  )})
-}
-
-/** Nota operativa MCP Figma: solo se il server è remoto serve inoltrare la porta del Figma desktop. */
-function printMcpHints(cfg, localOnly = false) {
-  if (!cfg || typeof cfg !== "object") return
-  if (localOnly) return
-  const mcpActive = !!cfg.sections?.["mcp"]
-  const hasFigma = (cfg.mcpList || []).filter((id) => MCP_PRESETS[id]).includes("figma")
-  const remoteHost = cfg.entry?.host && !/^(localhost|127\.0\.0\.1|0\.0\.0\.0)$/i.test(cfg.entry.host)
-  if (mcpActive && hasFigma && remoteHost) {
-    console.log(c.dim(ui(
-      `  figma : server remoto → il Figma desktop gira sul client: apri un terminale sul client e inoltra la porta con \`ssh -R 3845:127.0.0.1:3845 ${cfg.entry.host}\``,
-      `  figma : remote server → Figma desktop runs on the client: open a terminal on the client and forward the port with \`ssh -R 3845:127.0.0.1:3845 ${cfg.entry.host}\``,
-    )))
-  }
 }
 
 function fail(msg) {

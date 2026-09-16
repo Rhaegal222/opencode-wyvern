@@ -177,27 +177,12 @@ async function collectCommandsCfg(prev) {
   return { customCommands: sel.map((s) => s.value) }
 }
 
-/** Server MCP abilitati; token non salvati in locale (solo .env sul server). */
+/** Server MCP selezionati (token non richiesto: Desktop MCP usa OAuth locale). */
 async function collectMcpCfg(prev) {
   const prevList = (prev && prev.mcpList) || []
   const defaultIndices = MCP_CHOICES.map((m, i) => (prevList.includes(m.value) ? i : -1)).filter((i) => i >= 0)
   const sel = await checkbox(ui("Quali server MCP abilitare nel config server?", "Which MCP servers to enable in the server config?"), MCP_CHOICES.map((m) => ({ label: m.label, value: m.value })), { defaultIndices })
-  const mcpList = sel.map((s) => s.value)
-  const envKeys = {}
-  const tokenIds = mcpList.filter((id) => MCP_PRESETS[id]?.envKey)
-  if (tokenIds.length) {
-    envKeys.FIGMA_API_KEY = await secret(ui(
-      "Figma personal access token (FIGMA_API_KEY) — resta sul server",
-      "Figma personal access token (FIGMA_API_KEY) — stays on the server",
-    ), { allowEmpty: true })
-  }
-  if (Object.values(envKeys).some(Boolean)) {
-    console.log(c.dim(ui(
-      "  (il token NON viene salvato in locale; finisce solo in ~/.config/opencode/.env sul server, chmod 600)",
-      "  (token is NOT stored locally; it only ends up in ~/.config/opencode/.env on the server, chmod 600)",
-    )))
-  }
-  return { mcpList, envKeys }
+  return { mcpList: sel.map((s) => s.value) }
 }
 
 export async function run(argv = []) {
@@ -285,11 +270,9 @@ export async function run(argv = []) {
     customCommands = (await collectCommandsCfg(cfg)).customCommands
   }
 
-  let mcpList = cfg.mcpList || []
+  let mcpList = (cfg.mcpList || []).filter((id) => MCP_PRESETS[id])
   if (activeIds.has("mcp")) {
-    const mcp = await collectMcpCfg(cfg)
-    mcpList = mcp.mcpList
-    envKeys = { ...envKeys, ...mcp.envKeys }
+    mcpList = (await collectMcpCfg(cfg)).mcpList
   }
 
   let tuning = cfg.tuning !== false
@@ -367,6 +350,7 @@ if (!localOnly) {
 
   console.log(c.green(`\n${ui("Fatto.", "Done.")}`))
   console.log(`  config    : ${configFilePath()} ${ui("(solo dati non sensibili)", "(non-sensitive data only)")}`)
+  printMcpHints(saved, localOnly)
   if (localClientTargets.length) {
     console.log(ui(
       `  client    : ${localClientTargets.map((t) => t === "client-pwsh" ? "PowerShell" : "bash").join(", ")} → ricarica profilo per attivare i comandi oc-*`,
@@ -438,6 +422,7 @@ export async function cmdGenerate() {
   }
   const remote = [...act].filter((id) => getSection(id)?.kind === "remote").length
   if (remote) applyRemoteSections(cfg)
+  printMcpHints(cfg)
 }
 
 export async function cmdPrint(id) {
@@ -446,6 +431,21 @@ export async function cmdPrint(id) {
   const rendered = renderSection(id, cfg.entry ? cfg : SAMPLE_ENTRY)
   if (!rendered) return fail(ui("sezione non stampabile:", "section not printable:") + ` ${id}`)
   console.log(rendered.content)
+}
+
+/** Nota operativa MCP Figma: solo se il server è remoto serve inoltrare la porta del Figma desktop. */
+function printMcpHints(cfg, localOnly = false) {
+  if (!cfg || typeof cfg !== "object") return
+  if (localOnly) return
+  const mcpActive = !!cfg.sections?.["mcp"]
+  const hasFigma = (cfg.mcpList || []).filter((id) => MCP_PRESETS[id]).includes("figma")
+  const remoteHost = cfg.entry?.host && !/^(localhost|127\.0\.0\.1|0\.0\.0\.0)$/i.test(cfg.entry.host)
+  if (mcpActive && hasFigma && remoteHost) {
+    console.log(c.dim(ui(
+      `  figma : server remoto → inoltra la porta del Figma desktop con \`ssh -L 3845:127.0.0.1:3845 ${cfg.entry.host}\``,
+      `  figma : remote server → forward the Figma desktop port with \`ssh -L 3845:127.0.0.1:3845 ${cfg.entry.host}\``,
+    )))
+  }
 }
 
 function fail(msg) {

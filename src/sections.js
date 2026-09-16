@@ -1,7 +1,7 @@
 import { c } from "./prompts.js"
 import { ui } from "./i18n.js"
 import { renderClient, installClient } from "./client.js"
-import { buildRemoteScript, runRemote, runScriptLocal, verifyConnection, chooseDefaultModels } from "./server.js"
+import { buildRemoteScript, runRemote, runScriptLocal, verifyConnection, chooseDefaultModels, MCP_PRESETS } from "./server.js"
 
 /**
  * Catalogo delle sezioni del setup. Ogni sezione è un modulo indipendente:
@@ -67,10 +67,10 @@ export const SECTIONS = [
     id: "mcp",
     kind: "remote",
     group: "server",
-    label: ui("Server — MCP (Figma Design…)", "Server — MCP (Figma Design…)"),
+    label: ui("Server — MCP (Figma Desktop, Dev Mode)", "Server — MCP (Figma Desktop, Dev Mode)"),
     desc: ui(
-      "Blocco mcp in opencode.json per server figma; i token finiscono in .env sul server (chmod 600).",
-      "mcp block in opencode.json for figma servers; tokens go to .env on the server (chmod 600).",
+      "Blocco mcp in opencode.json per il Figma Desktop MCP locale (127.0.0.1:3845, Dev Mode); nessun token richiesto.",
+      "mcp block in opencode.json for the local Figma Desktop MCP (127.0.0.1:3845, Dev Mode); no token required.",
     ),
   },
   {
@@ -155,7 +155,7 @@ export const COMMAND_CHOICES = [
 ]
 
 export const MCP_CHOICES = [
-  { label: "Figma Developer MCP — npx + " + ui("token personale Figma", "personal Figma token"), value: "figma-developer" },
+  { label: "Figma Desktop MCP — " + ui("endpoint locale, Dev Mode", "local endpoint, Dev Mode"), value: "figma" },
 ]
 
 export function getSection(id) {
@@ -195,7 +195,6 @@ export function serverState(cfg) {
     omnirouteUrl,
     baseUrls: cfg.baseUrls || {},
     customCommands: cfg.customCommands || [],
-    // Ignora preset rimossi: `oc-setup generate` pulisce anche le vecchie config.
     mcpList: (cfg.mcpList || []).filter((id) => MCP_PRESETS[id]),
     defaultModel,
     smallModel,

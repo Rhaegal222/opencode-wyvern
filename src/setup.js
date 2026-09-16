@@ -33,42 +33,6 @@ import { installClient } from "./client.js"
 const SAMPLE_ENTRY = { server: "remote-server", host: "server.example.com", user: "you", dir: "~" }
 const REMOTE_SECTIONS = new Set(["server", "commands", "providers", "plugins", "claude-mem", "mcp"])
 
-/**
- * Ripara chirurgicamente il blocco Figma MCP nell'opencode.json del server:
- * rimuove il vecchio `figma-developer` (npx + token) e, se serve, porta
- * `figma` al Desktop MCP (remote, 127.0.0.1:3845). Funziona sia su server
- * locale che via SSH. Idempotente: se non c'è nulla da riparare esce subito.
- */
-async function repairMcp(cfg, { applyMode } = {}) {
-  const entry = cfg.entry
-  const mode = applyMode || cfg.applyMode || "ssh"
-  const script = buildMcpRepairScript()
-  if (mode === "local") {
-    try {
-      runScriptLocal(script, { label: ui(
-        "[..] Riparazione chirurgica opencode.json in locale...",
-        "[..] Repairing opencode.json locally (surgical)...",
-      )})
-    } catch (err) {
-      console.log(c.yellow(`  ${ui("attenzione:", "warning:")} ${err.message}`))
-    }
-    return
-  }
-  if (!entry) return
-  const ok = verifyConnection(entry)
-  if (!ok) {
-    console.log(c.yellow(ui(
-      `  server non raggiungibile: repair MCP rimandato — esegui \`${ui("oc-setup repair", "oc-setup repair")}\` quando torna.`,
-      `  server unreachable: MCP repair deferred — run \`${ui("oc-setup repair", "oc-setup repair")}\` once it's back.`,
-    )))
-    return
-  }
-  runRemote(entry, script, { label: ui(
-    "[..] Riparazione chirurgica opencode.json sul server...",
-    "[..] Repairing opencode.json on the server (surgical)...",
-  )})
-}
-
 /** Scenari preimpostati: dicono quali sezioni attivare prima di iniziare. */
 const SCENARIOS = [
   {
@@ -476,8 +440,39 @@ export async function cmdPrint(id) {
 
 export async function cmdRepair() {
   const cfg = loadConfig()
-  if (!cfg.entry) return fail(ui("nessuna config: esegui prima `oc-setup`", "no config: run `oc-setup` first"))
   await repairMcp(cfg)
+}
+
+async function repairMcpLocal() {
+  try {
+    runScriptLocal(buildMcpRepairScript(), { label: ui(
+      "[..] Riparazione chirurgica opencode.json in locale...",
+      "[..] Repairing opencode.json locally (surgical)...",
+    )})
+  } catch (err) {
+    console.error(c.red(`  ${ui("attenzione:", "warning:")} ${err.message}`))
+  }
+}
+
+async function repairMcp(cfg, { applyMode } = {}) {
+  const entry = cfg.entry
+  const mode = applyMode || cfg.applyMode || "ssh"
+  if (mode === "local" || !entry) {
+    return repairMcpLocal()
+  }
+  const script = buildMcpRepairScript()
+  const ok = verifyConnection(entry)
+  if (!ok) {
+    console.log(c.yellow(ui(
+      `  server non raggiungibile: repair MCP rimandato — esegui \`oc-setup repair\` quando torna.`,
+      `  server unreachable: MCP repair deferred — run \`oc-setup repair\` once it's back.`,
+    )))
+    return
+  }
+  runRemote(entry, script, { label: ui(
+    "[..] Riparazione chirurgica opencode.json sul server...",
+    "[..] Repairing opencode.json on the server (surgical)...",
+  )})
 }
 
 /** Nota operativa MCP Figma: solo se il server è remoto serve inoltrare la porta del Figma desktop. */

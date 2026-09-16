@@ -416,13 +416,61 @@ export function buildRemoteScript({ sections = new Set(), providers = new Set(),
   return lines.join("\n")
 }
 
+/**
+ * Ripara chirurgicamente l'opencode.json remoto: rimuove il vecchio MCP
+ * `figma-developer` (npx + token) e porta `figma` al Figma Desktop MCP
+ * (remote, 127.0.0.1:3845). Non tocca gli altri server MCP (cloudflare,
+ * ecc.) e non riscrive l'intero file. Eseguito via SSH da `oc-setup repair`
+ * / `generate`, oppure in locale con `applyMode local`.
+ */
+export function buildMcpRepairScript() {
+  const esc = (s) => Buffer.from(s, "utf8").toString("base64")
+  const js = `
+const fs = require("fs");
+const path = require("path");
+const cfgDir = process.env.OPENCODE_CONFIG_DIR || path.join(process.env.HOME || ".", ".config", "opencode");
+const file = path.join(cfgDir, "opencode.json");
+if (!fs.existsSync(file)) { console.log("REPAIR_SKIP: opencode.json assente"); process.exit(0); }
+let data;
+try { data = JSON.parse(fs.readFileSync(file, "utf8")); }
+catch (e) { console.log("REPAIR_SKIP: opencode.json non valido (" + e.message + ")"); process.exit(0); }
+const servers = (data.mcp && data.mcp.servers) ? data.mcp.servers : {};
+if (servers["figma-developer"]) {
+  delete servers["figma-developer"];
+  console.log("REPAIR: rimosso figma-developer");
+}
+if (servers["figma"] && servers["figma"].type !== "remote") {
+  servers["figma"] = { type: "remote", url: "http://127.0.0.1:3845/mcp", oauth: false, enabled: true };
+  console.log("REPAIR: figma portato al Desktop MCP (remote)");
+}
+const cleanEnv = (envFile) => {
+  if (!fs.existsSync(envFile)) return;
+  const lines = fs.readFileSync(envFile, "utf8").split(/\\r?\\n/).filter((l) => l && !l.startsWith("FIGMA_API_KEY=") && !l.startsWith("PATH="));
+  fs.writeFileSync(envFile, lines.length ? lines.join("\\n") + "\\n" : "");
+};
+cleanEnv(path.join(cfgDir, ".env"));
+fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\\n");
+console.log("REPAIR_OK");
+`
+  const lines = [
+    "set -e",
+    'CFG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"',
+    "mkdir -p \"$CFG_DIR\"",
+    `printf '%s' ${esc(js)} | base64 -d > "$CFG_DIR/.oc-repair.mjs"`,
+    "node \"$CFG_DIR/.oc-repair.mjs\"",
+    "rm -f \"$CFG_DIR/.oc-repair.mjs\"",
+    "echo REPAIR_DONE",
+  ]
+  return lines.join("\n")
+}
+
 /** Esegue lo script remoto via `ssh target "echo <b64> | base64 -d | bash"`. */
-export function runRemote(cfg, script) {
+export function runRemote(cfg, script, { label } = {}) {
   const b64 = Buffer.from(script, "utf8").toString("base64")
   const remoteCmd = `printf '%s' ${b64} | base64 -d | bash`
   console.log(c.cyan(ui(
-    "[..] Eseguo bootstrap sul server (può richiedere qualche minuto)...",
-    "[..] Running bootstrap on the server (may take a few minutes)...",
+    label || "[..] Eseguo bootstrap sul server (può richiedere qualche minuto)...",
+    label || "[..] Running bootstrap on the server (may take a few minutes)...",
   )))
   const res = spawnSync("ssh", [...sshTargetArgs(cfg), remoteCmd], {
     encoding: "utf8",
@@ -437,7 +485,7 @@ export function runRemote(cfg, script) {
  * ("server-only in localhost"): niente SSH, i file finiscono in ~/.config/opencode.
  * Richiede bash sulla macchina (Linux/macOS, oppure Git Bash/WSL su Windows).
  */
-export function runScriptLocal(script) {
+export function runScriptLocal(script, { label } = {}) {
   const bash = which("bash")
   if (!bash) {
     throw new Error(ui(
@@ -446,8 +494,8 @@ export function runScriptLocal(script) {
     ))
   }
   console.log(c.cyan(ui(
-    "[..] Eseguo bootstrap in locale su questa macchina (può richiedere qualche minuto)...",
-    "[..] Running bootstrap locally on this machine (may take a few minutes)...",
+    label || "[..] Eseguo bootstrap in locale su questa macchina (può richiedere qualche minuto)...",
+    label || "[..] Running bootstrap locally on this machine (may take a few minutes)...",
   )))
   const env = { ...process.env }
   // Conversione HOME in path POSIX (Git Bash/MSYS2 su Windows); su Linux resta com'è.

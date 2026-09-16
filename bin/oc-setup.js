@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { run, cmdStatus, cmdActivate, cmdDeactivate, cmdGenerate, cmdPrint, runPrintClient } from "../src/setup.js"
+import { run, cmdStatus, cmdActivate, cmdDeactivate, cmdGenerate, cmdPrint, cmdRepair, runPrintClient } from "../src/setup.js"
 import { runUninstall } from "../src/uninstall.js"
 import { ui } from "../src/i18n.js"
 
@@ -14,6 +14,7 @@ API key vengono richiesti/creati in locale durante l'esecuzione.
 Uso:
   oc-setup                              avvia la procedura guidata interattiva
   oc-setup generate                     riapplica le sezioni attive dalla config
+  oc-setup repair                       ripara il blocco Figma MCP in opencode.json
   oc-setup uninstall                    disinstallazione completa (client, config, cache, alias SSH)
   oc-setup status                       mostra i moduli e lo stato
   oc-setup activate <sezione>           attiva un modulo
@@ -37,6 +38,7 @@ keys are requested/created locally during execution.
 Usage:
   oc-setup                              starts the interactive wizard
   oc-setup generate                     re-applies active sections from config
+  oc-setup repair                       repairs the Figma MCP block in opencode.json
   oc-setup uninstall                    complete uninstall (client, config, cache, SSH alias)
   oc-setup status                       shows modules and status
   oc-setup activate <section>           activates a module
@@ -87,6 +89,9 @@ try {
     case "deactivate":
       if (!arg1) fail(ui("uso: oc-setup deactivate <sezione>", "usage: oc-setup deactivate <section>"))
       await cmdDeactivate(arg1)
+      break
+    case "repair":
+      await cmdRepair()
       break
     case "generate":
       await cmdGenerate()

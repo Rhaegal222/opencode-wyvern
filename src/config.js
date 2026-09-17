@@ -16,11 +16,19 @@ import { ui } from "./i18n.js"
  * al primo comando la config viene aggiornata in automatico e le note
  * (mini-guida post-update) vengono mostrate una sola volta.
  */
-export const CONFIG_VERSION = 3
+export const CONFIG_VERSION = 4
+
+/** Id dei preset MCP "market" nativi (v4). Serve alla migrazione per distinguerli dal residuo Figma. */
+const MCP_PRESET_IDS = ["firecrawl", "tavily", "supabase"]
 
 /**
- * Migra una config salvata: aggiorna `configVersion` e rimuove i residui del
- * vecchio preset MCP Figma (`mcpList`, sezione `mcp`) rimossi in 0.3.0.
+ * Migra una config salvata:
+ * - 0.3.0 (v3): rimuove i residui del vecchio preset MCP Figma (`mcpList`,
+ *   sezione `mcp`). La sezione `mcp` del 0.3.0 era solo Figma (instabile).
+ * - 0.4.0 (v4): la sezione `mcp` torna con i preset market verificati
+ *   (firecrawl, tavily, supabase): `mcpList` riparte da zero (vuoto). I residui
+ *   Figma che fossero rimasti nel frattempo vengono rimossi se la sezione è
+ *   ancora impostata come attiva SENZA alcun preset mcp valido.
  * Host, providers, plugin, comandi, tuning e moduli restano intatti.
  * Ritorna la config stessa se non è cambiato nulla.
  */
@@ -29,15 +37,29 @@ export function migrateConfig(cfg) {
   let changed = false
   const next = { ...cfg }
 
-  if (Array.isArray(next.mcpList) && next.mcpList.length) {
+  // Residuo v3: mcpList era il preset Figma (rimosso). Ora torna come lista
+  // dei preset market scelti: se non ci sono preset validi, svuotiamo tutto.
+  if (next.mcpList !== undefined && !Array.isArray(next.mcpList)) {
     delete next.mcpList
     changed = true
   }
+  if (Array.isArray(next.mcpList)) {
+    const valid = next.mcpList.filter((id) => typeof id === "string" && MCP_PRESET_IDS.includes(id))
+    if (valid.length !== next.mcpList.length) {
+      next.mcpList = valid.length ? valid : undefined
+      changed = true
+    }
+    if (next.mcpList === undefined) delete next.mcpList
+  }
   if (next.sections && Object.prototype.hasOwnProperty.call(next.sections, "mcp")) {
-    const s = { ...next.sections }
-    delete s.mcp
-    next.sections = s
-    changed = true
+    const mcpActive = !!(next.sections && next.sections.mcp)
+    const noValidMcp = !Array.isArray(next.mcpList) || next.mcpList.length === 0
+    if (mcpActive && noValidMcp) {
+      const s = { ...next.sections }
+      s.mcp = false // la vecchia sezione figma attiva senza preset → disattiva
+      next.sections = s
+      changed = true
+    }
   }
 
   if (next.configVersion !== CONFIG_VERSION) {

@@ -123,6 +123,96 @@ export const PLUGIN_PKG = {
   "kimi": "opencode-kimi-subscription",
   "copilot-auth": "opencode-copilot-auth@latest",
   "omniroute": "@omniroute/opencode-plugin@latest",
+  "superpowers": "superpowers@git+https://github.com/obra/superpowers.git",
+  "ponytail": "@dietrichgebert/ponytail@latest",
+}
+
+/** Strumenti da installare globalmente sul server (npm). */
+export const TOOL_PKG = {
+  repomix: "repomix@latest",
+}
+
+/**
+ * Preset MCP "marketplace" verificati su npm (lezione Figma: solo pacchetti
+ * reali e stabili). Ogni preset è locale (`npx -y <pkg>@<ver>`); la chiave
+ * opzionale viene letta da un file segreto via `{file:...}` (canale aperto
+ * da opencode, vedi docs config), non da `.env` (che opencode non auto-carica).
+ */
+export const MCP_PRESETS = {
+  firecrawl: {
+    label: "Firecrawl",
+    desc: "Firecrawl MCP server: search, scrape, interact with the web",
+    command: ["npx", "-y", "firecrawl-mcp@3.24.0"],
+    envKey: "FIRECRAWL_API_KEY",
+    secretFile: "firecrawl.key",
+  },
+  tavily: {
+    label: "Tavily",
+    desc: "Tavily MCP server: advanced web search",
+    command: ["npx", "-y", "tavily-mcp@0.2.22"],
+    envKey: "TAVILY_API_KEY",
+    secretFile: "tavily.key",
+  },
+  supabase: {
+    label: "Supabase",
+    desc: "Supabase MCP server: manage projects, query data",
+    command: ["npx", "-y", "@supabase/mcp-server-supabase@0.12.0"],
+    envKey: "SUPABASE_ACCESS_TOKEN",
+    secretFile: "supabase.key",
+  },
+}
+
+export const MCP_PRESET_IDS = Object.keys(MCP_PRESETS)
+
+/** File segreto (in $CFG_DIR/secrets) referenziato dal blocco MCP via {file:~/...}. */
+export function mcpSecretFile(id) {
+  return MCP_PRESETS[id] ? `~/.config/opencode/secrets/${MCP_PRESETS[id].secretFile}` : ""
+}
+
+/**
+ * Costruisce il blocco `mcp` di opencode.json dai preset selezionati.
+ * I server con chiave nota sono `enabled: true`; quelli senza chiave restano
+ * `enabled: false` (config valida, l'utente può aggiungere la chiave dopo).
+ * La chiave non entra MAI nel JSON: il blocco punta al file segreto via
+ * `{file:...}`, che opencode risolve al bootstrap.
+ */
+export function buildMcpBlock(mcpList = [], { keys = {} } = {}) {
+  const mcp = {}
+  for (const id of mcpList) {
+    const p = MCP_PRESETS[id]
+    if (!p) continue
+    const entry = { type: "local", command: p.command }
+    const hasKey = Boolean(keys[id])
+    if (hasKey) {
+      entry.environment = { [p.envKey]: `{file:${mcpSecretFile(id)}}` }
+      entry.enabled = true
+    } else {
+      entry.enabled = false
+    }
+    mcp[id] = entry
+  }
+  return mcp
+}
+
+/**
+ * Normalizza a runtime il blocco mcp di una config già scritta (riapplica):
+ * ricalcola il path {file:...} sul CFG_DIR reale e `enabled` sull'esistenza
+ * del file segreto. Evita che un re-apply senza chiavi disabiliti server attivi.
+ */
+export function patchMcpBlock(cfg, entries, cfgDir) {
+  for (const [id, e] of Object.entries(entries)) {
+    const cur = cfg.mcp?.[id]
+    if (!cur) continue
+    if (!e.environment || !cur.environment) {
+      cur.enabled = false
+      continue
+    }
+    const k = Object.keys(e.environment)[0]
+    const sf = e.environment[k].replace(/^.*\//, "").replace(/\}$/, "")
+    cur.environment[k] = `{file:${cfgDir}/secrets/${sf}}`
+    cur.enabled = fs.existsSync(`${cfgDir}/secrets/${sf}`)
+  }
+  return cfg
 }
 
 function merchantEntry(p, omnirouteUrl) {
@@ -157,7 +247,7 @@ function providerBlock(id, models, baseUrls = {}, omnirouteUrl = "") {
  * Costruisce opencode.json dal server in modo programmatico (solo sezioni attive).
  * Nessun segreto nel JSON: le chiavi restano in .env (dichiarate con "env": [...]).
  */
-export function buildServerConfig({ providers = new Set(), models = {}, baseUrls = {}, omnirouteUrl = "", defaultModel, smallModel, tuning = false, plugins = [], claudeMem = false } = {}) {
+export function buildServerConfig({ providers = new Set(), models = {}, baseUrls = {}, omnirouteUrl = "", defaultModel, smallModel, tuning = false, plugins = [], claudeMem = false, mcpList = [], mcpKeys = {} } = {}) {
   const provider = {}
   for (const id of PROVIDER_ORDER) {
     if (providers.has(id)) {
@@ -176,6 +266,8 @@ export function buildServerConfig({ providers = new Set(), models = {}, baseUrls
   }
   if (defaultModel) out.model = defaultModel
   if (smallModel) out.small_model = smallModel
+  const mcp = buildMcpBlock(mcpList || [], { keys: mcpKeys })
+  if (Object.keys(mcp).length) out.mcp = mcp
   if (tuning) {
     out.tool_output = { max_lines: 200, max_bytes: 8192 }
     out.compaction = { auto: true, prune: true, tail_turns: 5, preserve_recent_tokens: 12000, reserved: 525000 }
@@ -296,7 +388,7 @@ export function verifyConnection(cfg) {
  * I segreti (API key) finiscono solo in .env (chmod 600) quando la sezione providers
  * è attiva e l'utente ne ha fornite.
  */
-export function buildRemoteScript({ sections = new Set(), providers = new Set(), models = {}, baseUrls = {}, omnirouteUrl = "", defaultModel, smallModel, tuning = false, plugins = [], claudeMem = false, envKeys = {}, customCommands = [] } = {}) {
+export function buildRemoteScript({ sections = new Set(), providers = new Set(), models = {}, baseUrls = {}, omnirouteUrl = "", defaultModel, smallModel, tuning = false, plugins = [], claudeMem = false, envKeys = {}, customCommands = [], mcpList = [], mcpKeys = {}, tools = [] } = {}) {
   const esc = (s) => Buffer.from(s, "utf8").toString("base64")
   const act = (id) => sections.has(id)
 
@@ -307,7 +399,7 @@ export function buildRemoteScript({ sections = new Set(), providers = new Set(),
     "command -v npm  >/dev/null || { log 'ERRORE: npm non trovato sul server'; exit 2; }",
     "log \"node: $(node -v)\"",
     'CFG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"',
-    'mkdir -p "$CFG_DIR/plugins" "$CFG_DIR/command"',
+    'mkdir -p "$CFG_DIR/plugins" "$CFG_DIR/command" "$CFG_DIR/secrets"',
     'cd "$CFG_DIR"',
   ]
 
@@ -349,9 +441,11 @@ export function buildRemoteScript({ sections = new Set(), providers = new Set(),
   const pluginPkgs = [...new Set((plugins || []).map((p) => PLUGIN_PKG[p]).filter(Boolean))]
   if (pluginPkgs.length) lines.push(`npm install ${pluginPkgs.join(" ")} >/dev/null 2>&1 || true`)
 
-  const hasServer = act("server") || act("commands") || act("plugins") || claudeMem || providers.size > 0
+  const mcpIds = (mcpList || []).filter((id) => MCP_PRESETS[id])
+
+  const hasServer = act("server") || act("commands") || act("plugins") || claudeMem || providers.size > 0 || mcpIds.length > 0
   if (hasServer) {
-    const json = buildServerConfig({ providers, models, baseUrls, omnirouteUrl, defaultModel, smallModel, tuning, plugins, claudeMem })
+    const json = buildServerConfig({ providers, models, baseUrls, omnirouteUrl, defaultModel, smallModel, tuning, plugins, claudeMem, mcpList: mcpIds, mcpKeys })
     lines.push(`echo '${esc(JSON.stringify(json, null, 2))}' | base64 -d > "$CFG_DIR/opencode.json"`)
   }
 
@@ -365,6 +459,40 @@ export function buildRemoteScript({ sections = new Set(), providers = new Set(),
     lines.push("chmod 600 \"$CFG_DIR/.env\"")
   } else if (act("server")) {
     lines.push("umask 077; [ -f \"$CFG_DIR/.env\" ] || : > \"$CFG_DIR/.env\"")
+  }
+
+  if (act("mcp") && mcpIds.length) {
+    lines.push(`log "MCP: ${mcpIds.join(", ")}"`)
+    for (const id of mcpIds) {
+      const key = (mcpKeys || {})[id]
+      if (key) {
+        lines.push("umask 077")
+        lines.push(`echo '${esc(key)}' | base64 -d > "$CFG_DIR/secrets/${MCP_PRESETS[id].secretFile}"`)
+        lines.push(`chmod 600 "$CFG_DIR/secrets/${MCP_PRESETS[id].secretFile}"`)
+      }
+    }
+    // Patch a runtime (riapplica/re-apply): il blocco mcp in opencode.json
+    // viene normalizzato sul CFG_DIR reale e abilitato solo se il file segreto
+    // esiste. Così un re-run senza chiavi non disabilita MCP già attivi.
+    lines.push(`node -e '
+const fs=require("fs");
+const p=process.argv[1],dir=process.argv[2];
+const c=JSON.parse(fs.readFileSync(p,"utf8"));
+if (c.mcp){for(const [id,e] of Object.entries(c.mcp)){
+  if (!e.environment){e.enabled=false;continue;}
+  const k=Object.keys(e.environment)[0];
+  const sf=e.environment[k].replace(/^.*\\//,"").replace(/\\}$/,"");
+  e.environment[k]="{file:"+dir+"/secrets/"+sf+"}";
+  e.enabled=fs.existsSync(dir+"/secrets/"+sf);
+}}
+fs.writeFileSync(p,JSON.stringify(c,null,2));
+' "$CFG_DIR/opencode.json" "$CFG_DIR"`)
+  }
+
+  const toolPkgs = [...new Set((tools || []).map((id) => TOOL_PKG[id]).filter(Boolean))]
+  if (act("tools") && toolPkgs.length) {
+    lines.push(`log "tools: installo ${toolPkgs.join(", ")} (globale)"`)
+    lines.push(`npm install -g ${toolPkgs.join(" ")} >/dev/null 2>&1 || true`)
   }
 
   lines.push('log "config opencode scritta in: $CFG_DIR"')

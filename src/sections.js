@@ -99,6 +99,29 @@ export const SECTIONS = [
       "Installs opcode-mem + plugins/claude-mem-plugin.js wrapper.",
     ),
   },
+  {
+    id: "mcp",
+    kind: "remote",
+    group: "server",
+    label: ui(
+      "Server — MCP market (Firecrawl, Tavily, Supabase)",
+      "Server — MCP marketplace (Firecrawl, Tavily, Supabase)",
+    ),
+    desc: ui(
+      "Server MCP lander verificati: web search/scrape, tool su base reale npm; chiavi in ~/.config/opencode/secrets/.",
+      "Verified MCP servers: web search/scrape, real npm packages; keys in ~/.config/opencode/secrets/.",
+    ),
+  },
+  {
+    id: "tools",
+    kind: "remote",
+    group: "server",
+    label: ui("Server — strumenti (Repomix)", "Server — tools (Repomix)"),
+    desc: ui(
+      "Installa globalmente strumenti da CLI utili in sessione (repomix: repo → contesto LLM).",
+      "Installs useful CLI tools globally (repomix: repo → LLM context).",
+    ),
+  },
 ]
 
 /**
@@ -117,6 +140,8 @@ export const SECTION_CONFIGS = {
   providers: [...SSH_CONN, "providersList", "omnirouteUrl", "apiKeys", "tuning"],
   plugins: [...SSH_CONN, "pluginsList", "tuning"],
   "claude-mem": [...SSH_CONN, "tuning"],
+  mcp: [...SSH_CONN, "mcpList"],
+  tools: [...SSH_CONN, "toolsList"],
 }
 
 /** Unione delle configurazioni richieste da un insieme di sezioni. */
@@ -131,6 +156,18 @@ export const PLUGIN_CHOICES = [
   { label: ui("claude-auth (auth Claude)", "claude-auth (Claude auth)"), value: "claude-auth" },
   { label: "kimi-subscription", value: "kimi" },
   { label: ui("omniroute (gateway multi-modello)", "omniroute (multi-model gateway)"), value: "omniroute" },
+  { label: ui("superpowers (skill/command per assistenti AI)", "superpowers (skills/commands for AI assistants)"), value: "superpowers" },
+  { label: ui("ponytail (review di codice 'senior dev')", "ponytail ('senior dev' code review)"), value: "ponytail" },
+]
+
+export const MCP_CHOICES = [
+  { label: "Firecrawl — " + ui("ricerca + scrape web", "web search + scrape"), value: "firecrawl" },
+  { label: "Tavily — " + ui("ricerca web avanzata", "advanced web search"), value: "tavily" },
+  { label: "Supabase — " + ui("gestisci progetti e query", "manage projects and queries"), value: "supabase" },
+]
+
+export const TOOL_CHOICES = [
+  { label: "repomix — " + ui("pack repo → contesto LLM", "repo → LLM context"), value: "repomix" },
 ]
 
 export const COMMAND_CHOICES = [
@@ -141,6 +178,7 @@ export const COMMAND_CHOICES = [
   { label: "/tests — " + ui("genera casi di test", "generates test cases"), value: "tests" },
   { label: "/commit — " + ui("messaggio commit convenzionale", "conventional commit message"), value: "commit" },
   { label: "/explain — " + ui("spiega un blocco di codice", "explains a code block"), value: "explain" },
+  { label: "/handoff — " + ui("riepilogo e handoff di sessione", "session summary & handoff"), value: "handoff" },
 ]
 
 export function getSection(id) {
@@ -184,6 +222,8 @@ export function serverState(cfg) {
     smallModel,
     tuning: cfg.tuning,
     envKeys: cfg.envKeys || {},
+    mcpList: cfg.mcpList || [],
+    tools: cfg.tools || [],
   }
 }
 
@@ -191,7 +231,7 @@ export function serverState(cfg) {
 export function renderSection(id, cfg) {
   if (id === "client-pwsh") return { content: renderClient("pwsh", cfg.entry || cfg) }
   if (id === "client-bash") return { content: renderClient("bash", cfg.entry || cfg) }
-  const remoteIds = new Set(["server", "commands", "providers", "plugins", "claude-mem"])
+  const remoteIds = new Set(["server", "commands", "providers", "plugins", "claude-mem", "mcp", "tools"])
   if (remoteIds.has(id)) {
     const state = serverState(cfg)
     const only = new Set([id])
@@ -215,9 +255,13 @@ if (id === "ssh") {
 }
 
 /** Applica le sezioni remoto: compone lo script e lo esegue via SSH o in locale. */
-export function applyRemoteSections(cfg, { dryRun = false, envKeys, applyMode } = {}) {
+export function applyRemoteSections(cfg, { dryRun = false, envKeys, mcpKeys, applyMode } = {}) {
   const mode = applyMode || cfg.applyMode || "ssh"
-  const state = { ...serverState(cfg), envKeys: envKeys || cfg.envKeys || {} }
+  const state = {
+    ...serverState(cfg),
+    envKeys: envKeys || cfg.envKeys || {},
+    mcpKeys: mcpKeys || {},
+  }
   const script = buildRemoteScript(state)
   const remoteActive = [...state.sections].filter((id) => getSection(id)?.kind === "remote")
   if (!remoteActive.length) return { applied: false, script }

@@ -23,7 +23,7 @@ Uso:
   oc-setup --help | -h                  questo aiuto
 
 Sezioni:
-  ssh, client-pwsh, client-bash, server, commands, providers, plugins, claude-mem
+  ssh, client-pwsh, client-bash, server, commands, providers, plugins, claude-mem, mcp, tools
 
 Uscita dal wizard:
   TUI:  Esc / Ctrl+C                  Fallback (NON terminale): rispondi 'q'
@@ -46,7 +46,7 @@ Usage:
   oc-setup --help | -h                  this help
 
 Sections:
-  ssh, client-pwsh, client-bash, server, commands, providers, plugins, claude-mem
+  ssh, client-pwsh, client-bash, server, commands, providers, plugins, claude-mem, mcp, tools
 
 Leaving the wizard:
   TUI:  Esc / Ctrl+C                  Fallback (NON terminal): answer 'q'

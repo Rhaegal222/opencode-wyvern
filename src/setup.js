@@ -6,6 +6,8 @@ import {
   SECTIONS,
   PLUGIN_CHOICES,
   COMMAND_CHOICES,
+  MCP_CHOICES,
+  TOOL_CHOICES,
   getSection,
   defaultSections,
   renderSection,
@@ -16,6 +18,7 @@ import {
 import {
   PROVIDER_META,
   PROVIDER_ORDER,
+  MCP_PRESETS,
   defaultOmniRouteBase,
   isPortValid,
   ensureLocalKey,
@@ -28,7 +31,7 @@ import {
 import { installClient } from "./client.js"
 
 const SAMPLE_ENTRY = { server: "remote-server", host: "server.example.com", user: "you", dir: "~" }
-const REMOTE_SECTIONS = new Set(["server", "commands", "providers", "plugins", "claude-mem"])
+const REMOTE_SECTIONS = new Set(["server", "commands", "providers", "plugins", "claude-mem", "mcp", "tools"])
 
 /** Scenari preimpostati: dicono quali sezioni attivare prima di iniziare. */
 const SCENARIOS = [
@@ -48,7 +51,7 @@ const SCENARIOS = [
     value: "server-only",
     label: ui("Solo server", "Server only"),
     desc: ui("Bootstrap e config del server remoto via SSH (nessun profilo client).", "Remote server bootstrap & config over SSH (no local profiles)."),
-    sections: ["server", "commands", "providers", "plugins", "claude-mem"],
+    sections: ["server", "commands", "providers", "plugins", "claude-mem", "mcp", "tools"],
   },
   {
     value: "custom",
@@ -177,6 +180,51 @@ async function collectCommandsCfg(prev) {
   return { customCommands: sel.map((s) => s.value) }
 }
 
+/** Server MCP "market" e loro chiavi (le chiavi restano nei secrets sul server). */
+async function collectMcpCfg(prev) {
+  const prevList = (prev && prev.mcpList) || []
+  const defaultIndices = MCP_CHOICES
+    .map((ch, i) => (prevList.includes(ch.value) ? i : -1))
+    .filter((i) => i >= 0)
+  const sel = await checkbox(
+    ui("Quali server MCP attivare sul server?", "Which MCP servers to enable on the server?"),
+    MCP_CHOICES.map((m) => ({ label: `${m.label} ${c.dim(MCP_PRESETS[m.value]?.desc || "")}`.trim(), value: m.value })),
+    { defaultIndices },
+  )
+  const mcpList = sel.map((s) => s.value)
+
+  const mcpKeys = {}
+  for (const id of mcpList) {
+    const envKey = MCP_PRESETS[id]?.envKey
+    if (!envKey) continue
+    mcpKeys[id] = await secret(ui(
+      `API key ${MCP_PRESETS[id].label} (${envKey}) — resta in ~/.config/opencode/secrets/`,
+      `API key ${MCP_PRESETS[id].label} (${envKey}) — stored in ~/.config/opencode/secrets/`,
+    ), { allowEmpty: true })
+  }
+  if (Object.values(mcpKeys).some(Boolean)) {
+    console.log(c.dim(ui(
+      "  (le chiavi MCP NON vengono salvate in locale; finiscono solo in ~/.config/opencode/secrets/*.key sul server)",
+      "  (MCP keys are NOT stored locally; they end up in ~/.config/opencode/secrets/*.key on the server only)",
+    )))
+  }
+  return { mcpList, mcpKeys }
+}
+
+/** Strumenti globali da installare sul server. */
+async function collectToolsCfg(prev) {
+  const prevList = (prev && prev.tools) || []
+  const defaultIndices = TOOL_CHOICES
+    .map((ch, i) => (prevList.includes(ch.value) ? i : -1))
+    .filter((i) => i >= 0)
+  const sel = await checkbox(
+    ui("Quali strumenti installare sul server?", "Which tools to install on the server?"),
+    TOOL_CHOICES.map((m) => ({ label: m.label, value: m.value })),
+    { defaultIndices },
+  )
+  return { tools: sel.map((s) => s.value) }
+}
+
 export async function run(argv = []) {
   console.log(c.bold(c.cyan("oc-setup — OpenCode Wyvern "))
     + c.dim(ui(
@@ -257,6 +305,19 @@ export async function run(argv = []) {
     plugins = sel.map((s) => s.value)
   }
 
+  let mcpList = cfg.mcpList || []
+  let mcpKeys = {}
+  if (activeIds.has("mcp")) {
+    const m = await collectMcpCfg(cfg)
+    mcpList = m.mcpList
+    mcpKeys = m.mcpKeys
+  }
+
+  let tools = cfg.tools || []
+  if (activeIds.has("tools")) {
+    tools = (await collectToolsCfg(cfg)).tools
+  }
+
   let customCommands = cfg.customCommands || []
   if (activeIds.has("commands")) {
     customCommands = (await collectCommandsCfg(cfg)).customCommands
@@ -268,7 +329,7 @@ export async function run(argv = []) {
   }
 
   const sections = Object.fromEntries(SECTIONS.map((s) => [s.id, activeIds.has(s.id)]))
-  saveConfig({ entry, sections, providers, models, plugins, omnirouteUrl, baseUrls, customCommands, tuning, applyMode, configuredAt: new Date().toISOString() })
+  saveConfig({ entry, sections, providers, models, plugins, omnirouteUrl, baseUrls, customCommands, tuning, applyMode, mcpList, tools, configuredAt: new Date().toISOString() })
 
   section(ui("Applicazione", "Application"))
   const anyClient = activeIds.has("client-pwsh") || activeIds.has("client-bash")
@@ -325,10 +386,10 @@ if (!localOnly) {
         "  server non raggiungibile ora: script pronto, esegui `oc-setup generate` quando torna",
         "  server unreachable now: script ready, run `oc-setup generate` when it's back",
       )))
-      applyRemoteSections(saved, { envKeys, applyMode: "ssh" })
+      applyRemoteSections(saved, { envKeys, mcpKeys, applyMode: "ssh" })
     } else {
       try {
-        applyRemoteSections(saved, { envKeys, applyMode: "local" })
+        applyRemoteSections(saved, { envKeys, mcpKeys, applyMode: "local" })
       } catch (err) {
         console.log(c.yellow(`  ${ui("attenzione:", "warning:")} ${err.message}`))
       }
@@ -363,6 +424,8 @@ export async function cmdStatus() {
     console.log(`  server: provider ${providers.join(", ")}${urls.length ? ` · ${urls.join(" · ")}` : ""}${cfg.tuning ? ui(" · tuning on", " · tuning on") : ""}`)
   }
   if (cfg.customCommands?.length) console.log(`  cmds  : ${cfg.customCommands.map((x) => "/" + x).join(", ")}`)
+  if (cfg.mcpList?.length) console.log(`  mcp   : ${cfg.mcpList.join(", ")}`)
+  if (cfg.tools?.length) console.log(`  tools : ${cfg.tools.join(", ")}`)
   console.log("")
   console.log(ui("  moduli:", "  modules:"))
   for (const s of SECTIONS) {

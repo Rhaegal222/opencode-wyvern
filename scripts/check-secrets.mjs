@@ -32,15 +32,21 @@ function walk(dir) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name)
     if (e.isDirectory()) walk(p)
-    else if (e.name.endsWith(".js") || e.name.endsWith(".md") || e.name.endsWith(".ps1") || e.name.endsWith(".sh")) scan(p)
+    else if (e.name.endsWith(".js") || e.name.endsWith(".md") || e.name.endsWith(".ps1") || e.name.endsWith(".sh") || e.name.endsWith(".crt")) scan(p)
   }
 }
 
 function scan(file) {
   const content = fs.readFileSync(file, "utf8")
+  const relative = path.relative(root, file)
+  const publicCaFile = relative === path.join("templates", "wyrmrest-ca.crt")
+  const caImplementation = relative === path.join("src", "client-opencode.js")
+  const caSetup = relative === path.join("src", "setup.js")
   content.split(/\r?\n/).forEach((line, i) => {
     const id = line.match(BANNED_IDS)
-    if (id) failures.push(`${path.relative(root, file)}:${i + 1} identità riservata "${id[0]}"`)
+    const allowedCaImplementation = caImplementation && /(WyrmrestCa|WYRMREST_CA|wyrmrest-ca|CA Wyrmrest|Wyrmrest CA)/.test(line)
+    const allowedCaSetup = caSetup && /(CA Wyrmrest|Wyrmrest CA)/.test(line)
+    if (id && !publicCaFile && !allowedCaImplementation && !allowedCaSetup) failures.push(`${relative}:${i + 1} identità riservata "${id[0]}"`)
     for (const re of CREDS) {
       const m = line.match(re)
       if (m) failures.push(`${path.relative(root, file)}:${i + 1} possibile credenziale "${m[0].slice(0, 40)}"`)

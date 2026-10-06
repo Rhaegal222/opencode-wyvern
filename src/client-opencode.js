@@ -1,12 +1,76 @@
 import fs from "node:fs"
 import path from "node:path"
 import dns from "node:dns/promises"
+import crypto from "node:crypto"
+import os from "node:os"
+import http from "node:http"
+import https from "node:https"
 import { spawnSync } from "node:child_process"
-import { ensureDir } from "./config.js"
+import { ensureDir, readTemplate } from "./config.js"
 import { isWindows, opencodeConfigDir, opencodeConfigFilePath, which } from "./shell.js"
 import { buildOpenCodeConfig, defaultClientOmniRouteBase } from "./server.js"
 import { c } from "./prompts.js"
 import { ui } from "./i18n.js"
+
+export const WYRMREST_CA_FINGERPRINT = "E4:63:07:49:7F:9C:3C:E2:D4:6C:1B:0F:29:B1:D8:1A:C6:B5:67:E4:47:F7:E7:51:AF:19:A2:79:34:76:94:2C"
+
+export function bundledWyrmrestCa() {
+  return readTemplate("wyrmrest-ca.crt")
+}
+
+export function verifyWyrmrestCa(pem) {
+  try {
+    const cert = new crypto.X509Certificate(pem)
+    return cert.fingerprint256 === WYRMREST_CA_FINGERPRINT && cert.ca
+  } catch {
+    return false
+  }
+}
+
+export function localWyrmrestCaPath() {
+  return path.join(ensureDir(path.join(os.homedir(), ".config", "opencode-wyvern")), "wyrmrest-ca.crt")
+}
+
+export function installWyrmrestCa({ certificate = bundledWyrmrestCa(), filePath = localWyrmrestCaPath(), platform = process.platform, home = os.homedir(), exec = spawnSync } = {}) {
+  if (!verifyWyrmrestCa(certificate)) return { ok: false, code: "invalid-ca", message: ui("CA Wyrmrest incorporata non valida.", "Bundled Wyrmrest CA is invalid.") }
+  try {
+    ensureDir(path.dirname(filePath))
+    const previousCa = process.env.NODE_EXTRA_CA_CERTS && process.env.NODE_EXTRA_CA_CERTS !== filePath && fs.existsSync(process.env.NODE_EXTRA_CA_CERTS)
+      ? fs.readFileSync(process.env.NODE_EXTRA_CA_CERTS, "utf8")
+      : ""
+    const bundle = previousCa ? `${previousCa.trimEnd()}\n${certificate}` : certificate
+    fs.writeFileSync(filePath, bundle, { encoding: "utf8", mode: 0o600 })
+    if (platform === "win32") {
+      const result = exec("setx.exe", ["NODE_EXTRA_CA_CERTS", filePath], { encoding: "utf8", stdio: "inherit", timeout: 120000, shell: false })
+      if (result.status !== 0) throw new Error("setx failed")
+    } else {
+      const profile = path.join(home, ".profile")
+      const marker = "# OpenCode Wyvern CA"
+      const line = `export NODE_EXTRA_CA_CERTS=${JSON.stringify(filePath)}`
+      const current = fs.existsSync(profile) ? fs.readFileSync(profile, "utf8") : ""
+      const pattern = new RegExp(`(?:^|\\n)${marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\nexport NODE_EXTRA_CA_CERTS=[^\\n]*(?:\\n|$)`)
+      const block = `${marker}\n${line}\n`
+      const next = pattern.test(current) ? current.replace(pattern, (match) => match.startsWith("\n") ? `\n${block}` : block) : `${current}${current && !current.endsWith("\n") ? "\n" : ""}${block}`
+      fs.writeFileSync(profile, next, "utf8")
+    }
+    process.env.NODE_EXTRA_CA_CERTS = filePath
+    return { ok: true, code: "installed", path: filePath, message: ui("CA Wyrmrest installata per OpenCode; apri un nuovo terminale.", "Wyrmrest CA installed for OpenCode; open a new terminal.") }
+  } catch (error) {
+    return { ok: false, code: "install-failed", message: ui(`Installazione della CA Wyrmrest non riuscita: ${error.message}`, `Wyrmrest CA installation failed: ${error.message}`) }
+  }
+}
+
+function requestHealth(url, certificate, timeoutMs) {
+  const client = url.protocol === "https:" ? https : http
+  return new Promise((resolve, reject) => {
+    const request = client.get(url, { ca: url.protocol === "https:" ? certificate : undefined, timeout: timeoutMs }, (response) => {
+      response.resume()
+      resolve({ ok: response.statusCode >= 200 && response.statusCode < 300, status: response.statusCode })
+    })
+    request.once("timeout", () => request.destroy(new Error("request timeout")))
+    request.once("error", reject)
+  })
+}
 
 export function buildClientConfig({ omnirouteUrl = defaultClientOmniRouteBase() } = {}) {
   return buildOpenCodeConfig({
@@ -119,7 +183,12 @@ function networkErrorMessage(error) {
   return detail || String(error)
 }
 
-export async function diagnoseClientOmniRoute(baseUrl = defaultClientOmniRouteBase(), { timeoutMs = 5000 } = {}) {
+export function isCertificateTrustError(error) {
+  const detail = networkErrorMessage(error).toUpperCase()
+  return ["SELF_SIGNED_CERT_IN_CHAIN", "DEPTH_ZERO_SELF_SIGNED_CERT", "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "UNABLE_TO_GET_ISSUER_CERT", "UNABLE_TO_GET_ISSUER_CERT_LOCALLY", "CERT_UNTRUSTED"].some((code) => detail.includes(code))
+}
+
+export async function diagnoseClientOmniRoute(baseUrl = defaultClientOmniRouteBase(), { timeoutMs = 5000, caPath = localWyrmrestCaPath() } = {}) {
   const initial = validateClientEndpoint(baseUrl)
   if (!initial.ok) return { ok: false, dns: false, health: false, code: initial.code, message: endpointMessage(initial.code) }
   let addresses
@@ -131,10 +200,10 @@ export async function diagnoseClientOmniRoute(baseUrl = defaultClientOmniRouteBa
   const resolved = addresses.map(({ address }) => address)
   const validation = validateClientEndpoint(baseUrl, resolved)
   if (!validation.ok) return { ok: false, dns: true, health: false, code: validation.code, addresses: resolved, message: endpointMessage(validation.code, initial.url.hostname) }
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const response = await fetch(new URL("/healthz", initial.url), { signal: controller.signal })
+    const certificate = fs.existsSync(caPath) ? fs.readFileSync(caPath, "utf8") : undefined
+    if (certificate && !verifyWyrmrestCa(certificate)) return { ok: false, dns: true, health: false, code: "invalid-ca", addresses: resolved, message: ui("La CA Wyrmrest locale non supera la verifica della fingerprint.", "The local Wyrmrest CA failed fingerprint verification.") }
+    const response = await requestHealth(new URL("/healthz", initial.url), certificate, timeoutMs)
     return {
       ok: response.ok,
       dns: true,
@@ -146,17 +215,18 @@ export async function diagnoseClientOmniRoute(baseUrl = defaultClientOmniRouteBa
     }
   } catch (error) {
     const detail = networkErrorMessage(error)
-    return { ok: false, dns: true, health: false, code: "health-failed", addresses: resolved, message: ui(`DNS VPN risolto, ma HTTPS /healthz non è raggiungibile: ${detail}`, `VPN DNS resolved, but HTTPS /healthz is unreachable: ${detail}`) }
-  } finally {
-    clearTimeout(timer)
+    const certificateTrust = isCertificateTrustError(error)
+    return { ok: false, dns: true, health: false, code: certificateTrust ? "ca-untrusted" : "health-failed", certificateTrust, addresses: resolved, message: ui(`DNS VPN risolto, ma HTTPS /healthz non è raggiungibile: ${detail}`, `VPN DNS resolved, but HTTPS /healthz is unreachable: ${detail}`) }
   }
 }
 
 export async function installLocalClient(options = {}) {
   const file = writeClientConfig(options)
+  const ca = installWyrmrestCa()
   const binary = ensureLocalOpenCode(options)
   console.log(c.green(ui(`  config OpenCode client: ${file}`, `  client OpenCode config: ${file}`)))
+  console.log((ca.ok ? c.green : c.yellow)(`  ${ca.message}`))
   if (binary.ok) console.log(c.green(ui(`  opencode locale: ${binary.path}`, `  local opencode: ${binary.path}`)))
   else console.log(c.yellow(`  ${binary.reason}`))
-  return { file, binary }
+  return { file, ca, binary }
 }

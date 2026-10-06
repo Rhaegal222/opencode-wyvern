@@ -16,7 +16,7 @@ import { ui } from "./i18n.js"
  * al primo comando la config viene aggiornata in automatico e le note
  * (mini-guida post-update) vengono mostrate una sola volta.
  */
-export const CONFIG_VERSION = 5
+export const CONFIG_VERSION = 6
 
 /** Id dei preset MCP "market" nativi (v4). Serve alla migrazione per distinguerli dal residuo Figma. */
 const MCP_PRESET_IDS = ["firecrawl", "tavily", "supabase"]
@@ -68,6 +68,11 @@ export function migrateConfig(cfg) {
     if (!next.clientLocal) {
       next.clientLocal = { omnirouteUrl: ["https://omniroute.", "wyrm", "rest.local"].join(""), installBinary: false }
     }
+    changed = true
+  }
+
+  if ((next.configVersion || 0) < 6) {
+    next.clientLocal = { ...(next.clientLocal || {}), caConfigured: false }
     changed = true
   }
 

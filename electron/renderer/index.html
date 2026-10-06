@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+    <title>OpenCode Wyvern</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="renderer.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">Desktop control panel</p>
+          <h1>OpenCode Wyvern</h1>
+          <p class="intro">Controlla la configurazione locale e applica i moduli attivi senza usare il terminale.</p>
+        </div>
+        <span id="app-version" class="version">Avvio…</span>
+      </header>
+
+      <section class="actions" aria-labelledby="actions-title">
+        <div>
+          <p class="section-label">Operazioni</p>
+          <h2 id="actions-title">Gestione configurazione</h2>
+        </div>
+        <div class="button-row">
+          <button id="status-button" type="button">Mostra stato</button>
+          <button id="generate-button" class="primary" type="button">Applica configurazione</button>
+        </div>
+        <p id="action-error" class="error" role="alert" hidden></p>
+      </section>
+
+      <section class="console-section" aria-labelledby="console-title">
+        <div class="console-header">
+          <div>
+            <p class="section-label">Output</p>
+            <h2 id="console-title">Log operazioni</h2>
+          </div>
+          <button id="clear-button" class="quiet" type="button">Pulisci</button>
+        </div>
+        <pre id="log" class="console" tabindex="0" aria-live="polite">Pronto.</pre>
+      </section>
+    </main>
+  </body>
+</html>

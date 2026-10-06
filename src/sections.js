@@ -2,6 +2,7 @@ import { c } from "./prompts.js"
 import { ui } from "./i18n.js"
 import { renderClient, installClient } from "./client.js"
 import { buildRemoteScript, runRemote, runScriptLocal, verifyConnection, chooseDefaultModels } from "./server.js"
+import { buildClientConfig, installLocalClient } from "./client-opencode.js"
 
 /**
  * Catalogo delle sezioni del setup. Ogni sezione è un modulo indipendente:
@@ -38,6 +39,16 @@ export const SECTIONS = [
     desc: ui(
       "Stesso blocco in ~/.bashrc.",
       "Same block in ~/.bashrc.",
+    ),
+  },
+  {
+    id: "client-local",
+    kind: "local",
+    group: "client",
+    label: ui("Client locale — OpenCode + OmniRoute VPN", "Local client — OpenCode + OmniRoute VPN"),
+    desc: ui(
+      "Genera la config OpenCode locale e diagnostica binario, DNS VPN e /healthz OmniRoute.",
+      "Generates local OpenCode config and diagnoses the binary, VPN DNS, and OmniRoute /healthz.",
     ),
   },
   {
@@ -135,6 +146,7 @@ export const SECTION_CONFIGS = {
   ssh: [...SSH_CONN, "alias", "keyInstall"],
   "client-pwsh": ["alias", "dir"],
   "client-bash": ["alias", "dir"],
+  "client-local": ["clientOmnirouteUrl", "installLocalBinary"],
   server: [...SSH_CONN, "tuning"],
   commands: [...SSH_CONN, "customCommands"],
   providers: [...SSH_CONN, "providersList", "omnirouteUrl", "apiKeys", "tuning"],
@@ -191,8 +203,8 @@ export function activeSections(cfg) {
   return new Set(Object.entries(map).filter(([, v]) => v).map(([k]) => k))
 }
 
-export function defaultSections() {
-  return Object.fromEntries(SECTIONS.map((s) => [s.id, true]))
+export function setSectionState(sections, id, active) {
+  return { ...(sections || {}), [id]: active }
 }
 
 /** Provider attivi da config (chiavi booleane dell'oggetto cfg.providers). */
@@ -231,6 +243,7 @@ export function serverState(cfg) {
 export function renderSection(id, cfg) {
   if (id === "client-pwsh") return { content: renderClient("pwsh", cfg.entry || cfg) }
   if (id === "client-bash") return { content: renderClient("bash", cfg.entry || cfg) }
+  if (id === "client-local") return { content: JSON.stringify(buildClientConfig(cfg.clientLocal || {}), null, 2) }
   const remoteIds = new Set(["server", "commands", "providers", "plugins", "claude-mem", "mcp", "tools"])
   if (remoteIds.has(id)) {
     const state = serverState(cfg)
@@ -244,6 +257,10 @@ export function renderSection(id, cfg) {
 export async function applyLocalSection(id, cfg) {
   if (id === "client-pwsh" || id === "client-bash") {
     await installClient(cfg.entry || cfg, { targets: [id === "client-bash" ? "bash" : "pwsh"] })
+    return
+  }
+  if (id === "client-local") {
+    await installLocalClient(cfg.clientLocal || {})
     return
   }
 if (id === "ssh") {

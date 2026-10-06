@@ -20,7 +20,7 @@ npm install -g opencode-wyvern
 Il comando si chiama **`oc-setup`** (non `oc-help`, non `oc`). Verifica:
 
 ```bash
-oc-setup --version    # → 0.2.5
+oc-setup --version    # → 0.5.0
 ```
 
 Dopo la prima installazione, aggiorna il pacchetto e riapplica i comandi
@@ -52,8 +52,9 @@ oc-setup
 
 La procedura guidata:
 
-1. **Scenario** — scegli subito il contesto: **Client + Server** (tutto),
-   **Solo client**, **Solo server** o **Personalizzato** (sezioni singole).
+1. **Scenario** — scegli subito il contesto: **Client + Server** (legacy SSH),
+   **Solo client** (legacy SSH), **Client locale** (OpenCode sul client), **Solo server**
+   o **Personalizzato** (sezioni singole).
 2. Con **Solo server** viene chiesto come applicare lo script: **via SSH da questo
    client** o **in locale su questa macchina (localhost)** — in quest'ultimo caso
    non serve host/porta né la chiave SSH.
@@ -97,6 +98,7 @@ accodata al valore precedente.
 | `ssh`         | locale | genera/riusa la chiave ed25519, alias in `~/.ssh/config`, install chiave sul server |
 | `client-pwsh` | locale | comandi `oc-*` nel profilo PowerShell (`oc-sessions`, `oc-go`, `oc-resume`, `oc-recap`, ...) |
 | `client-bash` | locale | stesso blocco in `~/.bashrc` |
+| `client-local` | locale | genera `~/.config/opencode/opencode.json`, verifica/installazione opzionale del binario e diagnostica OmniRoute VPN |
 | `server`      | remoto | controlla node/npm, installa opencode se manca, crea `~/.config/opencode` + `AGENTS.md` |
 | `commands`    | remoto | comandi custom in `command/*.md` (`/baseline-ui`, `/omniroute-restart`, `/review`, ...) |
 | `providers`   | remoto | provider opencode in `opencode.json`; chiavi in `.env` |
@@ -114,9 +116,10 @@ Le chiavi vengono chieste al setup solo per i provider che le richiedono
 finiscono solo nel `.env` remoto. Per OmniRoute viene chiesto l'URL del gateway
 (default `http://127.0.0.1:20128`).
 
-Il modello default è scelto automaticamente (con OmniRoute: `omniroute/auto/best-coding`,
-altrimenti il primo modello del primo provider attivo), insieme a `small_model`.
-Un'opzione del setup aggiunge i tuning collaudati `tool_output` e `compaction`.
+Con OmniRoute la config generata usa `model: omniroute/auto/best-coding`,
+`small_model: omniroute/auto/cheap`, `plan` su `auto/best-reasoning`, `build` su
+`auto/best-coding` ed `explore`/`general` come subagent su `auto/cheap`. Il routing
+non dipende da `autoCombos`. Un'opzione aggiunge `tool_output` e `compaction`.
 
 ## Comandi custom
 
@@ -127,10 +130,16 @@ Docker OmniRoute e attende che sia `healthy`), `/review`, `/refactor`, `/tests`,
 
 ## Client
 
-I client espongono i comandi `oc-*` e mostrano le **sessioni delle ultime 24 ore**
-(finestra scorrevole). In particolare `oc-sessions` elenca le sessioni recenti,
-`oc-go` apre una sessione, `oc-resume` ne riapre più di una, `oc-recap` riepiloga
-a fine connessione. Richiedono `oc-setup ssh` o una `~/.ssh/config` già pronta.
+I client legacy espongono i comandi `oc-*` e mostrano le **sessioni delle ultime
+24 ore**. OpenCode continua a girare sul server via SSH; `oc-sessions`, `oc-go`,
+`oc-resume` e `oc-recap` restano compatibili e richiedono l'alias SSH configurato.
+
+Il modulo `client-local` genera invece la config OpenCode sul client per bash/Linux,
+macOS e PowerShell/Windows. Usa per default `https://omniroute.wyrmrest.local`,
+configurabile nel wizard, e verifica DNS e `/healthz`; l'offline non blocca il setup.
+Il DNS dovrebbe risolvere sulla subnet privata/VPN documentata. Se `opencode` manca,
+il setup può installarlo tramite npm oppure lascia la config pronta con un errore di
+prerequisito chiaro. Il server conserva il default distinto `http://127.0.0.1:20128`.
 
 ## Sviluppo
 

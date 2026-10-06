@@ -1,0 +1,6 @@
+import "./client-local.test.js"
+import "./config-shape.test.js"
+import "./mcp.test.js"
+import "./migration.test.js"
+import "./npm-existence.test.js"
+import "./sections.test.js"

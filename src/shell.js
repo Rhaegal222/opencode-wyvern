@@ -43,6 +43,14 @@ export function configFilePath() {
   return path.join(configDir(), "config.json")
 }
 
+export function opencodeConfigDir() {
+  return path.join(homedir(), ".config", "opencode")
+}
+
+export function opencodeConfigFilePath() {
+  return path.join(opencodeConfigDir(), "opencode.json")
+}
+
 /** Costruisce lo string target SSH `[user@]host`. */
 export function sshTarget({ user, host, port }) {
   const u = user ? `${user}@` : ""

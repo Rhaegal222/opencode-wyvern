@@ -5,25 +5,85 @@ on:
     tags: ['v*']
 
 jobs:
-  publish:
+  validate:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          registry-url: https://registry.npmjs.org
-
+          node-version: 24
+          cache: npm
+      - run: npm ci
       - name: Versione package = tag
         run: |
           V=$(node -p "require('./package.json').version")
           T=${GITHUB_REF#refs/tags/}
           echo "version=$V tag=$T"
           test "$T" = "v$V"
+      - run: npm test
+      - run: npm run prepack
 
+  desktop:
+    needs: validate
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            command: npm run dist:linux
+            artifact: desktop-linux
+            files: |
+              dist/*.AppImage
+              dist/*.deb
+              dist/latest-linux.yml
+          - os: windows-latest
+            command: npm run dist:win
+            artifact: desktop-windows
+            files: |
+              dist/*.exe
+              dist/latest.yml
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: ${{ matrix.command }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+
+  publish-npm:
+    needs: desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
       - name: Publish su npm
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  github-release:
+    needs: [desktop, publish-npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: release-assets
+          merge-multiple: true
+      - name: Crea GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release-assets/* --generate-notes --title "OpenCode Wyvern $GITHUB_REF_NAME"

@@ -9,17 +9,18 @@ import {
   MCP_CHOICES,
   TOOL_CHOICES,
   getSection,
-  defaultSections,
   renderSection,
   applyLocalSection,
   applyRemoteSections,
   neededConfigs,
+  setSectionState,
 } from "./sections.js"
 import {
   PROVIDER_META,
   PROVIDER_ORDER,
   MCP_PRESETS,
   defaultOmniRouteBase,
+  defaultClientOmniRouteBase,
   isPortValid,
   ensureLocalKey,
   ensureSshConfigAlias,
@@ -29,6 +30,7 @@ import {
   runScriptLocal,
 } from "./server.js"
 import { installClient } from "./client.js"
+import { diagnoseClientOmniRoute, installLocalClient } from "./client-opencode.js"
 
 const SAMPLE_ENTRY = { server: "remote-server", host: "server.example.com", user: "you", dir: "~" }
 const REMOTE_SECTIONS = new Set(["server", "commands", "providers", "plugins", "claude-mem", "mcp", "tools"])
@@ -46,6 +48,12 @@ const SCENARIOS = [
     label: ui("Solo client", "Client only"),
     desc: ui("SSH + comandi oc-* nei profili locali (il server opencode resta com'è).", "SSH + oc-* commands in local profiles (the opencode server stays untouched)."),
     sections: ["ssh", "client-pwsh", "client-bash"],
+  },
+  {
+    value: "client-local",
+    label: ui("Client locale", "Local client"),
+    desc: ui("OpenCode sul client con OmniRoute via VPN; i comandi SSH legacy restano opzionali.", "OpenCode on the client with OmniRoute over VPN; legacy SSH commands remain optional."),
+    sections: ["client-local"],
   },
   {
     value: "server-only",
@@ -239,7 +247,7 @@ export async function run(argv = []) {
     SCENARIOS.map((s) => ({ label: `${s.label} — ${s.desc}`, value: s.value, sections: s.sections })),
   )
 
-  let applyMode = cfg?.applyMode || "ssh"
+  let applyMode = "ssh"
   if (scenario.value === "server-only") {
     const modeSel = await select(
       ui("Come applichi lo script sul server?", "How do you apply the script on the server?"),
@@ -323,13 +331,23 @@ export async function run(argv = []) {
     customCommands = (await collectCommandsCfg(cfg)).customCommands
   }
 
+  let clientLocal = cfg.clientLocal || { omnirouteUrl: defaultClientOmniRouteBase(), installBinary: false }
+  if (activeIds.has("client-local")) {
+    const omnirouteUrl = await ask(ui("URL OmniRoute per il client locale (senza /v1)", "OmniRoute URL for the local client (without /v1)"), {
+      defaultValue: clientLocal.omnirouteUrl || defaultClientOmniRouteBase(),
+      validate: (v) => /^https?:\/\/\S+$/.test(v),
+    })
+    const installBinary = await confirm(ui("Installare OpenCode localmente via npm se manca?", "Install OpenCode locally through npm if missing?"), clientLocal.installBinary === true)
+    clientLocal = { omnirouteUrl, installBinary }
+  }
+
   let tuning = cfg.tuning !== false
   if (nc.has("tuning")) {
     tuning = await confirm(ui("Aggiungo al config tool_output + compaction (default robusti)?", "Add tool_output + compaction to the config (robust defaults)?"), cfg.tuning !== false)
   }
 
   const sections = Object.fromEntries(SECTIONS.map((s) => [s.id, activeIds.has(s.id)]))
-  saveConfig({ entry, sections, providers, models, plugins, omnirouteUrl, baseUrls, customCommands, tuning, applyMode, mcpList, tools, configuredAt: new Date().toISOString() })
+  saveConfig({ entry, sections, providers, models, plugins, omnirouteUrl, baseUrls, clientLocal, customCommands, tuning, applyMode, mcpList, tools, configuredAt: new Date().toISOString() })
 
   section(ui("Applicazione", "Application"))
   const anyClient = activeIds.has("client-pwsh") || activeIds.has("client-bash")
@@ -371,6 +389,11 @@ if (!localOnly) {
   }
 
   const localClientTargets = []
+  if (activeIds.has("client-local")) {
+    await installLocalClient(clientLocal)
+    const health = await diagnoseClientOmniRoute(clientLocal.omnirouteUrl)
+    console.log((health.ok ? c.green : c.yellow)(`  OmniRoute client: ${health.message}`))
+  }
   for (const t of ["client-pwsh", "client-bash"]) {
     if (activeIds.has(t)) {
       await applyLocalSection(t, { entry })
@@ -380,7 +403,8 @@ if (!localOnly) {
 
   if ([...REMOTE_SECTIONS].some((id) => activeIds.has(id))) {
     const saved = loadConfig()
-    if (!localOnly) {
+  if (!localOnly) {
+
       const ok = verifyConnection(entry)
       if (!ok) console.log(c.yellow(ui(
         "  server non raggiungibile ora: script pronto, esegui `oc-setup generate` quando torna",
@@ -418,6 +442,7 @@ export async function cmdStatus() {
   console.log(`  shell : PowerShell ${pwshProfilePath()} | bash ${bashRcPath()}`)
   console.log(`  entry : ${e ? `${e.user ? e.user + "@" : ""}${e.host || e.server}${e.port && e.port !== "22" ? ":" + e.port : ""} (alias: ${e.server || "-"}, dir: ${e.dir || "~"})` : ui("non configurata (esegui oc-setup)", "not configured (run oc-setup)")}`)
   if (cfg.applyMode === "local") console.log(`  apply : ${ui("in locale (localhost, senza SSH)", "local (localhost, no SSH)")}`)
+  if (cfg.sections?.["client-local"]) console.log(`  client: OpenCode ${cfg.clientLocal?.omnirouteUrl || defaultClientOmniRouteBase()}`)
   if (providers?.length) {
     const urls = providers.includes("omniroute") ? [`omniroute ${cfg.omnirouteUrl}`] : []
     for (const [id, url] of Object.entries(cfg.baseUrls || {})) urls.push(`${id} ${url}`)
@@ -437,20 +462,23 @@ export async function cmdStatus() {
 export async function cmdActivate(id) {
   if (!getSection(id)) return fail(ui("sezione sconosciuta:", "unknown section:") + ` ${id}`)
   const cfg = loadConfig()
-  cfg.sections = { ...defaultSections(), ...(cfg.sections || {}), [id]: true }
+  cfg.sections = setSectionState(cfg.sections, id, true)
   saveConfig(cfg)
   console.log(c.green(`  ${ui("sezione attivata:", "section activated:")} ${id}`))
   if (getSection(id).kind === "remote") {
     console.log(c.dim(`  ${ui("per applicarla sul server: oc-setup generate", "to apply it on the server: oc-setup generate")}`))
   } else if (id === "client-pwsh" || id === "client-bash") {
     await installClient(cfg.entry || SAMPLE_ENTRY, { targets: [id === "client-bash" ? "bash" : "pwsh"] })
+  } else if (id === "client-local") {
+    await installLocalClient(cfg.clientLocal || {})
   }
+
 }
 
 export async function cmdDeactivate(id) {
   if (!getSection(id)) return fail(ui("sezione sconosciuta:", "unknown section:") + ` ${id}`)
   const cfg = loadConfig()
-  cfg.sections = { ...defaultSections(), ...(cfg.sections || {}), [id]: false }
+  cfg.sections = setSectionState(cfg.sections, id, false)
   saveConfig(cfg)
   console.log(c.yellow(`  ${ui("sezione disattivata:", "section deactivated:")} ${id}`))
 }
@@ -459,8 +487,8 @@ export async function cmdGenerate() {
   const cfg = loadConfig()
   if (!cfg.entry) return fail(ui("nessuna config: esegui prima `oc-setup`", "no config: run `oc-setup` first"))
   const act = new Set(Object.entries(cfg.sections || {}).filter(([, v]) => v).map(([k]) => k))
-  for (const id of ["client-pwsh", "client-bash"]) {
-    if (act.has(id)) await applyLocalSection(id, { entry: cfg.entry })
+  for (const id of ["client-pwsh", "client-bash", "client-local"]) {
+    if (act.has(id)) await applyLocalSection(id, cfg)
   }
   if (act.has("ssh")) {
     ensureSshConfigAlias(cfg.entry)

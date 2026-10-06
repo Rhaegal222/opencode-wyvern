@@ -1,11 +1,12 @@
 {
   "name": "opencode-wyvern",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Setup modulare per OpenCode: SSH, client PowerShell/bash (comandi oc-*), configurazione server opencode, provider, plugin, MCP market e comandi custom. Installi tutto, attivi quello che vuoi.",
   "type": "module",
   "license": "MIT",
   "author": {
     "name": "Rhaegal222",
+    "email": "82738816+Rhaegal222@users.noreply.github.com",
     "url": "https://github.com/Rhaegal222"
   },
   "engines": {
@@ -43,11 +44,56 @@
     "url": "git+https://github.com/Rhaegal222/opencode-wyvern.git"
   },
   "scripts": {
-    "test": "node --test test/",
+    "start": "electron .",
+    "desktop": "electron .",
+    "dist": "electron-builder",
+    "dist:linux": "electron-builder --linux",
+    "dist:win": "electron-builder --win",
+    "test": "node --test test/index.test.js",
     "test:npm": "node --test test/npm-existence.test.js",
     "prepack": "node scripts/check-secrets.mjs"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.0"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "dev.wyvern.opencode",
+    "extraMetadata": {
+      "main": "electron/main.js"
+    },
+    "productName": "OpenCode Wyvern",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "bin/**/*",
+      "src/**/*",
+      "templates/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "bin/**/*",
+      "src/**/*",
+      "templates/**/*"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    }
   }
 }

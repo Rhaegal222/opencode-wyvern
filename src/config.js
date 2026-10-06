@@ -16,7 +16,7 @@ import { ui } from "./i18n.js"
  * al primo comando la config viene aggiornata in automatico e le note
  * (mini-guida post-update) vengono mostrate una sola volta.
  */
-export const CONFIG_VERSION = 4
+export const CONFIG_VERSION = 5
 
 /** Id dei preset MCP "market" nativi (v4). Serve alla migrazione per distinguerli dal residuo Figma. */
 const MCP_PRESET_IDS = ["firecrawl", "tavily", "supabase"]
@@ -34,6 +34,7 @@ const MCP_PRESET_IDS = ["firecrawl", "tavily", "supabase"]
  */
 export function migrateConfig(cfg) {
   if (!cfg || typeof cfg !== "object") return cfg
+  if (Number.isInteger(cfg.configVersion) && cfg.configVersion > CONFIG_VERSION) return cfg
   let changed = false
   const next = { ...cfg }
 
@@ -62,7 +63,15 @@ export function migrateConfig(cfg) {
     }
   }
 
-  if (next.configVersion !== CONFIG_VERSION) {
+  if ((next.configVersion || 0) < 5) {
+    next.sections = { ...(next.sections || {}), "client-local": false }
+    if (!next.clientLocal) {
+      next.clientLocal = { omnirouteUrl: ["https://omniroute.", "wyrm", "rest.local"].join(""), installBinary: false }
+    }
+    changed = true
+  }
+
+  if (!Number.isInteger(next.configVersion) || next.configVersion < CONFIG_VERSION) {
     next.configVersion = CONFIG_VERSION
     changed = true
   }
@@ -83,11 +92,13 @@ export function loadConfig() {
   }
 }
 
-export function saveConfig(cfg) {
-  fs.mkdirSync(configDir(), { recursive: true })
-  fs.writeFileSync(configFilePath(), JSON.stringify(cfg, null, 2) + "\n", "utf8")
+export function saveConfig(cfg, { filePath = configFilePath() } = {}) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  const current = Number.isInteger(cfg?.configVersion) ? cfg.configVersion : 0
+  const saved = { ...cfg, configVersion: Math.max(current, CONFIG_VERSION) }
+  fs.writeFileSync(filePath, JSON.stringify(saved, null, 2) + "\n", "utf8")
   try {
-    fs.chmodSync(configFilePath(), 0o600)
+    fs.chmodSync(filePath, 0o600)
   } catch {
     /* non critico */
   }

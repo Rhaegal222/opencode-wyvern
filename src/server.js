@@ -89,6 +89,10 @@ export function defaultOmniRouteBase() {
   return "http://127.0.0.1:20128"
 }
 
+export function defaultClientOmniRouteBase() {
+  return ["https://omniroute.", "wyrm", "rest.local"].join("")
+}
+
 /** Base baseURL del gateway per il blocco provider (append /v1 se manca). */
 export function omnirouteProviderUrl(u) {
   const base = (u && u.trim()) || defaultOmniRouteBase()
@@ -103,7 +107,7 @@ export function chooseDefaultModels(providers = new Set(), models = {}, omnirout
   if (providers.has("omniroute")) {
     return {
       defaultModel: "omniroute/auto/best-coding",
-      smallModel: "omniroute/auto/best-fast",
+      smallModel: "omniroute/auto/cheap",
       omnirouteUrl: omnirouteUrl || defaultOmniRouteBase(),
     }
   }
@@ -220,7 +224,7 @@ function merchantEntry(p, omnirouteUrl) {
     return [PLUGIN_PKG[p], {
       providerId: "omniroute",
       baseURL: (omnirouteUrl && omnirouteUrl.trim()) || defaultOmniRouteBase(),
-      features: { combos: false, autoCombos: false, compressionMetadata: true, debugLog: false, logLevel: "error" },
+      features: { combos: false, compressionMetadata: true, debugLog: false, logLevel: "error" },
       autoSyncIntervalMs: 0,
     }]
   }
@@ -247,7 +251,7 @@ function providerBlock(id, models, baseUrls = {}, omnirouteUrl = "") {
  * Costruisce opencode.json dal server in modo programmatico (solo sezioni attive).
  * Nessun segreto nel JSON: le chiavi restano in .env (dichiarate con "env": [...]).
  */
-export function buildServerConfig({ providers = new Set(), models = {}, baseUrls = {}, omnirouteUrl = "", defaultModel, smallModel, tuning = false, plugins = [], claudeMem = false, mcpList = [], mcpKeys = {} } = {}) {
+export function buildOpenCodeConfig({ providers = new Set(), models = {}, baseUrls = {}, omnirouteUrl = "", defaultModel, smallModel, tuning = false, plugins = [], claudeMem = false, mcpList = [], mcpKeys = {} } = {}) {
   const provider = {}
   for (const id of PROVIDER_ORDER) {
     if (providers.has(id)) {
@@ -266,14 +270,24 @@ export function buildServerConfig({ providers = new Set(), models = {}, baseUrls
   }
   if (defaultModel) out.model = defaultModel
   if (smallModel) out.small_model = smallModel
+  if (providers.has("omniroute")) {
+    out.agent = {
+      plan: { mode: "primary", model: "omniroute/auto/best-reasoning" },
+      build: { mode: "primary", model: "omniroute/auto/best-coding" },
+      explore: { mode: "subagent", model: "omniroute/auto/cheap" },
+      general: { mode: "subagent", model: "omniroute/auto/cheap" },
+    }
+  }
   const mcp = buildMcpBlock(mcpList || [], { keys: mcpKeys })
   if (Object.keys(mcp).length) out.mcp = mcp
   if (tuning) {
-    out.tool_output = { max_lines: 200, max_bytes: 8192 }
+    out.tool_output = { max_lines: 2000, max_bytes: 51200 }
     out.compaction = { auto: true, prune: true, tail_turns: 5, preserve_recent_tokens: 12000, reserved: 525000 }
   }
   return out
 }
+
+export const buildServerConfig = buildOpenCodeConfig
 
 /** Genera la chiave SSH ed25519 locale se non esiste (mai passphrase). */
 export function ensureLocalKey() {

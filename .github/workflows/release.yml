@@ -68,7 +68,10 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Publish su npm
-        run: npm publish --access public --tag latest
+        run: |
+          npm publish --access public --tag release
+          npm dist-tag add "opencode-wyvern@${GITHUB_REF_NAME#v}" latest
+          npm dist-tag rm opencode-wyvern release
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

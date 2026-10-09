@@ -45,50 +45,28 @@ export function localWyrmrestCaPath() {
  * Se non specifica fingerprint, qualsiasi CA valida sarà accettata.
  */
 export function addWyrmrestCa({ certificatePem, filePath, platform, home, exec }) {
-  const caPath = filePath || localWyrmrestCaPath()
-  // Scrivi la CA certificate PEM su file
-  ensureDir(path.dirname(caPath))
-  fs.writeFileSync(caPath, certificatePem, { encoding: "utf8", mode: 0o600 })
-
-  // Imposta NODE_EXTRA_CA_CERTS in base alla piattaforma
-  if (platform === "win32") {
-    const result = exec("setx.exe", ["NODE_EXTRA_CA_CERTS", caPath], { encoding: "utf8", stdio: "inherit", timeout: 120000, shell: false })
-    if (result.status !== 0) throw new Error("setx failed")
-  } else {
-    const profile = path.join(home || os.homedir(), ".profile")
-    const marker = "# OpenCode Wyvern CA"
-    const line = `export NODE_EXTRA_CA_CERTS=${JSON.stringify(caPath)}`
-    const current = fs.existsSync(profile) ? fs.readFileSync(profile, "utf8") : ""
-    const pattern = new RegExp(`(?:^|\\n)${marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\nexport NODE_EXTRA_CA_CERTS=[^\\n]*(?:\\n|$)`)
-    const block = `${marker}\n${line}\n`
-    const next = pattern.test(current) ? current.replace(pattern, (match) => match.startsWith("\n") ? `\n${block}` : block) : `${current}${current && !current.endsWith("\n") ? "\n" : ""}${block}`
-    fs.writeFileSync(profile, next, "utf8")
-  }
-  process.env.NODE_EXTRA_CA_CERTS = caPath
-  return { ok: true, code: "installed", path: caPath, message: ui("CA Wyrmrest installata per OpenCode; apri un nuovo terminale.", "Wyrmrest CA installed for OpenCode; open a new terminal.") }
-}
   try {
-    ensureDir(path.dirname(filePath))
-    const previousCa = process.env.NODE_EXTRA_CA_CERTS && process.env.NODE_EXTRA_CA_CERTS !== filePath && fs.existsSync(process.env.NODE_EXTRA_CA_CERTS)
-      ? fs.readFileSync(process.env.NODE_EXTRA_CA_CERTS, "utf8")
-      : ""
-    const bundle = previousCa ? `${previousCa.trimEnd()}\n${certificate}` : certificate
-    fs.writeFileSync(filePath, bundle, { encoding: "utf8", mode: 0o600 })
+    const caPath = filePath || localWyrmrestCaPath()
+    // Scrivi la CA certificate PEM su file
+    ensureDir(path.dirname(caPath))
+    fs.writeFileSync(caPath, certificatePem, { encoding: "utf8", mode: 0o600 })
+
+    // Imposta NODE_EXTRA_CA_CERTS in base alla piattaforma
     if (platform === "win32") {
-      const result = exec("setx.exe", ["NODE_EXTRA_CA_CERTS", filePath], { encoding: "utf8", stdio: "inherit", timeout: 120000, shell: false })
+      const result = exec("setx.exe", ["NODE_EXTRA_CA_CERTS", caPath], { encoding: "utf8", stdio: "inherit", timeout: 120000, shell: false })
       if (result.status !== 0) throw new Error("setx failed")
     } else {
-      const profile = path.join(home, ".profile")
+      const profile = path.join(home || os.homedir(), ".profile")
       const marker = "# OpenCode Wyvern CA"
-      const line = `export NODE_EXTRA_CA_CERTS=${JSON.stringify(filePath)}`
+      const line = `export NODE_EXTRA_CA_CERTS=${JSON.stringify(caPath)}`
       const current = fs.existsSync(profile) ? fs.readFileSync(profile, "utf8") : ""
       const pattern = new RegExp(`(?:^|\\n)${marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\nexport NODE_EXTRA_CA_CERTS=[^\\n]*(?:\\n|$)`)
       const block = `${marker}\n${line}\n`
       const next = pattern.test(current) ? current.replace(pattern, (match) => match.startsWith("\n") ? `\n${block}` : block) : `${current}${current && !current.endsWith("\n") ? "\n" : ""}${block}`
       fs.writeFileSync(profile, next, "utf8")
     }
-    process.env.NODE_EXTRA_CA_CERTS = filePath
-    return { ok: true, code: "installed", path: filePath, message: ui("CA Wyrmrest installata per OpenCode; apri un nuovo terminale.", "Wyrmrest CA installed for OpenCode; open a new terminal.") }
+    process.env.NODE_EXTRA_CA_CERTS = caPath
+    return { ok: true, code: "installed", path: caPath, message: ui("CA Wyrmrest installata per OpenCode; apri un nuovo terminale.", "Wyrmrest CA installed for OpenCode; open a new terminal.") }
   } catch (error) {
     return { ok: false, code: "install-failed", message: ui(`Installazione della CA Wyrmrest non riuscita: ${error.message}`, `Wyrmrest CA installation failed: ${error.message}`) }
   }

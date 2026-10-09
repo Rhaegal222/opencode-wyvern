@@ -66,7 +66,7 @@ export function migrateConfig(cfg) {
   if ((next.configVersion || 0) < 5) {
     next.sections = { ...(next.sections || {}), "client-local": false }
     if (!next.clientLocal) {
-      next.clientLocal = { omnirouteUrl: ["https://omniroute.", "wyrm", "rest.local"].join(""), installBinary: false }
+      next.clientLocal = { omnirouteUrl: "http://127.0.0.1:20128", installBinary: false }
     }
     changed = true
   }

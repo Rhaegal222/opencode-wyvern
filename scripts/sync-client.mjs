@@ -3,13 +3,18 @@
 // Il template client-pwsh viene sempre rigenerato dal profilo SANITIZZATO (niente dati privati).
 
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..")
-const PROFILE = "C:/Users/Rhaegal222/Documents/PowerShell/profile.ps1"
-const SETUP_SH = "C:/Users/Rhaegal222/setup-opencode-remote.sh"
+const PROFILE = process.env.OC_SYNC_PROFILE || path.join(os.homedir(), "Documents", "PowerShell", "profile.ps1")
+const SETUP_SH = process.env.OC_SYNC_SETUP_SH || path.join(os.homedir(), "setup-opencode-remote.sh")
 const Q = String.fromCharCode(39)
+
+// Scrub list privata (host/utente reali): NON versionata, vedi scripts/sync-private.example.json.
+const PRIVATE_FILE = path.join(ROOT, "scripts", "sync-private.json")
+const PRIVATE_SCRUBS = fs.existsSync(PRIVATE_FILE) ? JSON.parse(fs.readFileSync(PRIVATE_FILE, "utf8")) : []
 
 const PWSH_REPLACEMENTS = [
   // finestra 24h scorrevole (non giorno solare)
@@ -42,13 +47,13 @@ const BASH_REPLACEMENTS = [
 function sanitize(ps) {
   let out = ps
     .replace(new RegExp(Q + "remote-server" + Q, "g"), Q + "__OC_SERVER__" + Q)
-    .replace(/'(10\.0\.0\.1|server\.example\.com)'/g, Q + "__OC_HOST__" + Q)
-    .replace(new RegExp(Q + "rhaegal222" + Q, "g"), Q + "__OC_USER__" + Q)
+    .replace(/'(server\.example\.com)'/g, Q + "__OC_HOST__" + Q)
     .replace(/\$env:OC_DIR\s*=\s*'[^']*'/, "$env:OC_DIR     = '" + "__OC_DIR__" + "'")
     .replace(/\.cache\\opencode-remote\\/g, ".cache\\opencode-wyvern\\")
     .replace(/\.cache\/opencode-remote\//g, ".cache/opencode-wyvern/")
     .replace(/Opencode Remote - comandi/g, "OpenCode Wyvern - comandi")
     .replace(/# ---- Opencode Remote \(auto-generato\) ----/g, "# ---- OpenCode Wyvern (auto-generato) ----")
+  for (const [from, to] of PRIVATE_SCRUBS) out = out.split(from).join(to)
   return out
 }
 

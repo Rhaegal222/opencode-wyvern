@@ -1,3 +1,5 @@
+import fs from "node:fs"
+import path from "node:path"
 import { section, pwshProfilePath, bashRcPath, configFilePath } from "./shell.js"
 import { confirm, ask, checkbox, select, secret, closePrompts, c } from "./prompts.js"
 import { ui } from "./i18n.js"
@@ -331,14 +333,25 @@ export async function run(argv = []) {
     customCommands = (await collectCommandsCfg(cfg)).customCommands
   }
 
-  let clientLocal = cfg.clientLocal || { omnirouteUrl: defaultClientOmniRouteBase(), installBinary: false }
+  let clientLocal = cfg.clientLocal || { omnirouteUrl: defaultClientOmniRouteBase(), installBinary: false, caFile: "" }
   if (activeIds.has("client-local")) {
     const omnirouteUrl = await ask(ui("URL OmniRoute per il client locale (senza /v1)", "OmniRoute URL for the local client (without /v1)"), {
       defaultValue: clientLocal.omnirouteUrl || defaultClientOmniRouteBase(),
       validate: (v) => /^https?:\/\/\S+$/.test(v),
     })
     const installBinary = await confirm(ui("Installare OpenCode localmente via npm se manca?", "Install OpenCode locally through npm if missing?"), clientLocal.installBinary === true)
-    clientLocal = { omnirouteUrl, installBinary }
+    const { addCustomCa } = await import("./client-opencode.js")
+    let caFile = clientLocal.caFile || ""
+    const needCa = await confirm(ui("Hai un certificato CA personalizzato da installare per OmniRoute?", "Do you have a custom CA certificate to install for OmniRoute?"), false)
+    if (needCa) {
+      const pem = await ask(ui("Incolla il certificato CA (PEM) oppure un percorso file", "Paste the CA certificate (PEM) or a file path"), {})
+      let caPem = pem
+      try { const p = path.resolve(pem.trim()); if (fs.existsSync(p)) caPem = fs.readFileSync(p, "utf8") } catch {}
+      const caResult = addCustomCa({ certificatePem: caPem })
+      console.log((caResult.ok ? c.green : c.red)(`  ${caResult.message}`))
+      caFile = caResult.ok ? caResult.path : ""
+    }
+    clientLocal = { omnirouteUrl, installBinary, caFile }
   }
 
   let tuning = cfg.tuning !== false

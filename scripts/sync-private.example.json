@@ -1,0 +1,5 @@
+[
+  ["'gateway.example.net'", "'__OC_HOST__'"],
+  ["'youruser'", "'__OC_USER__'"],
+  ["C:/Users/youruser", "C:/Users/__OC_USER__"]
+]

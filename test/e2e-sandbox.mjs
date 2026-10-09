@@ -13,9 +13,12 @@ import { buildRemoteScript } from "../src/server.js"
  * Avvio: `node test/e2e-sandbox.mjs`. Richiede WSL + rete (npx scarica i pkg).
  */
 
-const tmpdir = "C:/Users/Rhaegal222/AppData/Local/Temp/opencode"
-const scriptStage = path.join(tmpdir.replaceAll("/", "\\"), "oc-e2e-script.sh")
-const probeStage = path.join(tmpdir.replaceAll("/", "\\"), "oc-e2e-probe.sh")
+const tmpdir = (process.env.OC_E2E_TMP || "C:/Users/Public/AppData/Local/Temp").replaceAll("\\", "/") + "/opencode"
+const winTmp = tmpdir.replaceAll("/", "\\")
+// Percorso equivalente visto da WSL (es. C:/x -> /mnt/c/x)
+const wslTmp = tmpdir.replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`)
+const scriptStage = path.join(winTmp, "oc-e2e-script.sh")
+const probeStage = path.join(winTmp, "oc-e2e-probe.sh")
 
 const sandboxHome = "/tmp/oc-e2e-home"
 const cfgDir = `${sandboxHome}/.config/opencode`
@@ -50,7 +53,7 @@ const wsl = (code, { check = true } = {}) => {
 
 try {
   // 1) esegui lo script remoto in HOME sandbox
-  const out = wsl(`set -e; rm -rf ${sandboxHome}; mkdir -p ${cfgDir}/secrets; export HOME=${sandboxHome}; cp /mnt/c/Users/Rhaegal222/AppData/Local/Temp/opencode/oc-e2e-script.sh /tmp/oc-e2e-script.sh && bash /tmp/oc-e2e-script.sh && echo SCRIPT_DONE`)
+  const out = wsl(`set -e; rm -rf ${sandboxHome}; mkdir -p ${cfgDir}/secrets; export HOME=${sandboxHome}; cp ${wslTmp}/oc-e2e-script.sh /tmp/oc-e2e-script.sh && bash /tmp/oc-e2e-script.sh && echo SCRIPT_DONE`)
   if (!out.includes("SCRIPT_DONE")) throw new Error("script remoto non completato:\n" + out)
 
   // 2) artifact: chiave segreta scritta (NO tavily/supabase senza chiave), command copiato
@@ -72,7 +75,7 @@ try {
   if (!/^@supabase\/mcp-server-supabase@0\.12\.0$/.test(mcp.supabase.command.slice(-1)[0])) throw new Error("comando supabase errato: " + mcpJson)
 
   // 5) {file:...} risolto da opencode reale: inietto probe nel blocco mcp e spawn via mcp list
-  wsl(`set -e; export HOME=${sandboxHome}; cp /mnt/c/Users/Rhaegal222/AppData/Local/Temp/opencode/oc-e2e-probe.sh ${cfgDir}/e2e-probe.js; chmod +x ${cfgDir}/e2e-probe.js; node -e "
+  wsl(`set -e; export HOME=${sandboxHome}; cp ${wslTmp}/oc-e2e-probe.sh ${cfgDir}/e2e-probe.js; chmod +x ${cfgDir}/e2e-probe.js; node -e "
 const fs=require('fs'); const p='${cfgDir}/opencode.json'; const c=JSON.parse(fs.readFileSync(p,'utf8'));
 c.mcp.e2eprobe={type:'local',command:['node','${cfgDir}/e2e-probe.js'],environment:{FIRECRAWL_API_KEY:'{file:${cfgDir}/secrets/firecrawl.key}'},enabled:true};
 fs.writeFileSync(p, JSON.stringify(c,null,2));

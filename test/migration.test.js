@@ -7,7 +7,7 @@ import { CONFIG_VERSION, migrateConfig, saveConfig } from "../src/config.js"
 import { buildMcpBlock, MCP_PRESET_IDS, mcpSecretFile } from "../src/server.js"
 
 test("config pulita alla versione corrente non viene toccata", () => {
-  const cfg = { configVersion: CONFIG_VERSION, entry: { host: "x" }, sections: { mcp: true, "client-local": false }, mcpList: ["firecrawl"], clientLocal: { omnirouteUrl: "https://omniroute.wyrmrest.local", installBinary: false, caConfigured: false } }
+  const cfg = { configVersion: CONFIG_VERSION, entry: { host: "x" }, sections: { mcp: true, "client-local": false }, mcpList: ["firecrawl"], clientLocal: { omnirouteUrl: "https://omniroute.example.com", installBinary: false, caConfigured: false } }
   const out = migrateConfig(cfg)
   assert.equal(out, cfg, "nessuna modifica se già a v4 con preset validi")
 })
@@ -41,14 +41,14 @@ test("v5: config legacy conserva dati e aggiunge client locale disattivo", () =>
   assert.equal(out.entry.host, "y")
   assert.deepEqual(out.customCommands, ["baseline-ui"])
   assert.equal(out.sections["client-local"], false)
-  assert.deepEqual(out.clientLocal, { omnirouteUrl: "https://omniroute.wyrmrest.local", installBinary: false, caConfigured: false })
+  assert.deepEqual(out.clientLocal, { omnirouteUrl: "http://127.0.0.1:20128", installBinary: false, caConfigured: false })
 })
 
 test("v6: client locale esistente viene marcato per configurare la CA", () => {
-  const cfg = { configVersion: 5, sections: { "client-local": true }, clientLocal: { omnirouteUrl: "https://omniroute.wyrmrest.local", installBinary: true } }
+  const cfg = { configVersion: 5, sections: { "client-local": true }, clientLocal: { omnirouteUrl: "https://omniroute.example.com", installBinary: true } }
   const out = migrateConfig(cfg)
   assert.equal(out.configVersion, 6)
-  assert.deepEqual(out.clientLocal, { omnirouteUrl: "https://omniroute.wyrmrest.local", installBinary: true, caConfigured: false })
+  assert.deepEqual(out.clientLocal, { omnirouteUrl: "https://omniroute.example.com", installBinary: true, caConfigured: false })
 })
 
 test("config future non viene retrocessa", () => {

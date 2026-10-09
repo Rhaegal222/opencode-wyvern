@@ -4,3 +4,4 @@ dist
 *.log
 .env
 .config.json
+scripts/sync-private.json

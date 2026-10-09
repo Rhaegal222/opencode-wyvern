@@ -90,7 +90,7 @@ export function defaultOmniRouteBase() {
 }
 
 export function defaultClientOmniRouteBase() {
-  return ["https://omniroute.", "wyrm", "rest.local"].join("")
+  return defaultOmniRouteBase()
 }
 
 /** Base baseURL del gateway per il blocco provider (append /v1 se manca). */

@@ -135,7 +135,7 @@ I client legacy espongono i comandi `oc-*` e mostrano le **sessioni delle ultime
 `oc-resume` e `oc-recap` restano compatibili e richiedono l'alias SSH configurato.
 
 Il modulo `client-local` genera invece la config OpenCode sul client per bash/Linux,
-macOS e PowerShell/Windows. Usa per default `https://omniroute.wyrmrest.local`,
+macOS e PowerShell/Windows. Usa per default `https://omniroute.example.com`,
 configurabile nel wizard, e verifica DNS e `/healthz`; l'offline non blocca il setup.
 Il DNS dovrebbe risolvere sulla subnet privata/VPN documentata. Se `opencode` manca,
 il setup può installarlo tramite npm oppure lascia la config pronta con un errore di

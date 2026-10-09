@@ -282,7 +282,7 @@ export function buildOpenCodeConfig({ providers = new Set(), models = {}, baseUr
   if (Object.keys(mcp).length) out.mcp = mcp
   if (tuning) {
     out.tool_output = { max_lines: 2000, max_bytes: 51200 }
-    out.compaction = { auto: true, prune: true, tail_turns: 5, preserve_recent_tokens: 12000, reserved: 525000 }
+    out.compaction = { auto: true, prune: true, tail_turns: 10, preserve_recent_tokens: 60000, reserved: 525000 }
   }
   return out
 }

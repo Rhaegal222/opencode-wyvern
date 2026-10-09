@@ -14,9 +14,9 @@ import { ui } from "./i18n.js"
 
 // Wyrmrest CA fingerprint can be set via environment or config;
   // if not set, verification is skipped (allows self-signed/custom CAs)
-export let WYRMREST_CA_FINGERPRINT: string | undefined
+export let WYRMREST_CA_FINGERPRINT
 
-export function setWyrmrestCaFingerprint(fingerprint: string) {
+export function setWyrmrestCaFingerprint(fingerprint) {
   WYRMREST_CA_FINGERPRINT = fingerprint
 }
 

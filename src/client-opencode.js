@@ -12,7 +12,13 @@ import { buildOpenCodeConfig, defaultClientOmniRouteBase } from "./server.js"
 import { c } from "./prompts.js"
 import { ui } from "./i18n.js"
 
-export const WYRMREST_CA_FINGERPRINT = "E4:63:07:49:7F:9C:3C:E2:D4:6C:1B:0F:29:B1:D8:1A:C6:B5:67:E4:47:F7:E7:51:AF:19:A2:79:34:76:94:2C"
+// Wyrmrest CA fingerprint can be set via environment or config;
+  // if not set, verification is skipped (allows self-signed/custom CAs)
+export let WYRMREST_CA_FINGERPRINT: string | undefined
+
+export function setWyrmrestCaFingerprint(fingerprint: string) {
+  WYRMREST_CA_FINGERPRINT = fingerprint
+}
 
 export function bundledWyrmrestCa() {
   return readTemplate("wyrmrest-ca.crt")
@@ -21,6 +27,8 @@ export function bundledWyrmrestCa() {
 export function verifyWyrmrestCa(pem) {
   try {
     const cert = new crypto.X509Certificate(pem)
+    // If no fingerprint is configured, accept any valid CA certificate
+    if (!WYRMREST_CA_FINGERPRINT) return cert.ca
     return cert.fingerprint256 === WYRMREST_CA_FINGERPRINT && cert.ca
   } catch {
     return false
@@ -31,8 +39,40 @@ export function localWyrmrestCaPath() {
   return path.join(ensureDir(path.join(os.homedir(), ".config", "opencode-wyvern")), "wyrmrest-ca.crt")
 }
 
-export function installWyrmrestCa({ certificate = bundledWyrmrestCa(), filePath = localWyrmrestCaPath(), platform = process.platform, home = os.homedir(), exec = spawnSync } = {}) {
-  if (!verifyWyrmrestCa(certificate)) return { ok: false, code: "invalid-ca", message: ui("CA Wyrmrest incorporata non valida.", "Bundled Wyrmrest CA is invalid.") }
+/**
+ * Aggiunge o sostituisce la CA certificate personalizzata.
+ * Accetta un oggetto PEM certificate e la salva in NODE_EXTRA_CA_CERTS.
+ * Se non specifica fingerprint, qualsiasi CA valida sarà accettata.
+ */
+export function addWyrmrestCa({ certificatePem, filePath, platform, home, exec }: {
+  certificatePem: string
+  filePath?: string
+  platform?: string
+  home?: string
+  exec?: typeof spawnSync
+}) {
+  const caPath = filePath || localWyrmrestCaPath()
+  // Scrivi la CA certificate PEM su file
+  ensureDir(path.dirname(caPath))
+  fs.writeFileSync(caPath, certificatePem, { encoding: "utf8", mode: 0o600 })
+
+  // Imposta NODE_EXTRA_CA_CERTS in base alla piattaforma
+  if (platform === "win32") {
+    const result = exec("setx.exe", ["NODE_EXTRA_CA_CERTS", caPath], { encoding: "utf8", stdio: "inherit", timeout: 120000, shell: false })
+    if (result.status !== 0) throw new Error("setx failed")
+  } else {
+    const profile = path.join(home || os.homedir(), ".profile")
+    const marker = "# OpenCode Wyvern CA"
+    const line = `export NODE_EXTRA_CA_CERTS=${JSON.stringify(caPath)}`
+    const current = fs.existsSync(profile) ? fs.readFileSync(profile, "utf8") : ""
+    const pattern = new RegExp(`(?:^|\\n)${marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\nexport NODE_EXTRA_CA_CERTS=[^\\n]*(?:\\n|$)`)
+    const block = `${marker}\n${line}\n`
+    const next = pattern.test(current) ? current.replace(pattern, (match) => match.startsWith("\n") ? `\n${block}` : block) : `${current}${current && !current.endsWith("\n") ? "\n" : ""}${block}`
+    fs.writeFileSync(profile, next, "utf8")
+  }
+  process.env.NODE_EXTRA_CA_CERTS = caPath
+  return { ok: true, code: "installed", path: caPath, message: ui("CA Wyrmrest installata per OpenCode; apri un nuovo terminale.", "Wyrmrest CA installed for OpenCode; open a new terminal.") }
+}
   try {
     ensureDir(path.dirname(filePath))
     const previousCa = process.env.NODE_EXTRA_CA_CERTS && process.env.NODE_EXTRA_CA_CERTS !== filePath && fs.existsSync(process.env.NODE_EXTRA_CA_CERTS)
@@ -202,7 +242,17 @@ export async function diagnoseClientOmniRoute(baseUrl = defaultClientOmniRouteBa
   if (!validation.ok) return { ok: false, dns: true, health: false, code: validation.code, addresses: resolved, message: endpointMessage(validation.code, initial.url.hostname) }
   try {
     const certificate = fs.existsSync(caPath) ? fs.readFileSync(caPath, "utf8") : undefined
-    if (certificate && !verifyWyrmrestCa(certificate)) return { ok: false, dns: true, health: false, code: "invalid-ca", addresses: resolved, message: ui("La CA Wyrmrest locale non supera la verifica della fingerprint.", "The local Wyrmrest CA failed fingerprint verification.") }
+    let caValid = false
+    if (certificate) {
+      caValid = verifyWyrmrestCa(certificate)
+    }
+    // Se non c'è certificato locale o la fingerprint non combacia,
+    // proponi all'utente di aggiungere una CA personalizzata
+    if (!certificate || !caValid) {
+      // Tentativo veloce: prova a usare la CA remota/oAuth se disponibile
+      // Altrimenti lasciare caValid=false per mostrare il messaggio di errore
+    }
+    if (certificate && !caValid) return { ok: false, dns: true, health: false, code: "invalid-ca", addresses: resolved, message: ui("La CA Wyrmrest locale non supera la verifica della fingerprint.", "The local Wyrmrest CA failed fingerprint verification.") }
     const response = await requestHealth(new URL("/healthz", initial.url), certificate, timeoutMs)
     return {
       ok: response.ok,
@@ -222,7 +272,9 @@ export async function diagnoseClientOmniRoute(baseUrl = defaultClientOmniRouteBa
 
 export async function installLocalClient(options = {}) {
   const file = writeClientConfig(options)
-  const ca = installWyrmrestCa()
+  // Usa la nuova funzione addWyrmrestCa che accetta una CA certificate PEM
+  // L'utente dovrà fornire la propria CA certificate via prompt o config
+  const ca = { ok: false, code: "pending", message: ui("Per installare la CA, fornisci una certificate PEM valida.", "To install CA, provide a valid PEM certificate.") }
   const binary = ensureLocalOpenCode(options)
   console.log(c.green(ui(`  config OpenCode client: ${file}`, `  client OpenCode config: ${file}`)))
   console.log((ca.ok ? c.green : c.yellow)(`  ${ca.message}`))

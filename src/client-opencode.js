@@ -44,13 +44,7 @@ export function localWyrmrestCaPath() {
  * Accetta un oggetto PEM certificate e la salva in NODE_EXTRA_CA_CERTS.
  * Se non specifica fingerprint, qualsiasi CA valida sarà accettata.
  */
-export function addWyrmrestCa({ certificatePem, filePath, platform, home, exec }: {
-  certificatePem: string
-  filePath?: string
-  platform?: string
-  home?: string
-  exec?: typeof spawnSync
-}) {
+export function addWyrmrestCa({ certificatePem, filePath, platform, home, exec }) {
   const caPath = filePath || localWyrmrestCaPath()
   // Scrivi la CA certificate PEM su file
   ensureDir(path.dirname(caPath))
